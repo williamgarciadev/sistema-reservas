@@ -42,18 +42,20 @@
 ```bash
 # VPS Access
 VPS_HOST=<tu-vps-ip-o-domínio>
-VPS_USERNAME=root
-VPS_SSH_KEY=<contenido-de-tu-llave-privada-ssh>
+VPS_USER=deploy
+VPS_SSH_PRIVATE_KEY=<contenido-de-tu-llave-privada-ssh>
 VPS_PORT=22
 
 # Production
-PRODUCTION_DOMAIN=sistema-reservas.com
-PRODUCTION_API_DOMAIN=api.sistema-reservas.com
+PRODUCTION_DOMAIN=reserva.wgsoft.com.co
+PRODUCTION_API_DOMAIN=api.reserva.wgsoft.com.co
 PROD_DB_USER=postgres
 PROD_DB_PASSWORD=<generar-password-32-chars-min>
-PROD_DB_NAME=sistema_reservas_prod
+PROD_DB_NAME=sistema_reservas
 PROD_JWT_SECRET=<generar-secret-64-chars-min>
 PROD_JWT_REFRESH_SECRET=<generar-secret-64-chars-min>
+ACME_EMAIL=contacto@wgsoft.com.co
+NEXT_PUBLIC_API_URL=https://api.reserva.wgsoft.com.co/api
 ```
 
 **Comandos para generar secrets**:
@@ -72,12 +74,17 @@ En tu proveedor de dominio (Namecheap, GoDaddy, etc.):
 
 ```
 Tipo: A
-Host: @
+Host: reserva
 Valor: <TU_VPS_IP>
 TTL: Automatic
 
 Tipo: A
 Host: api
+Valor: <TU_VPS_IP>
+TTL: Automatic
+
+Tipo: A
+Host: traefik
 Valor: <TU_VPS_IP>
 TTL: Automatic
 ```
@@ -117,16 +124,16 @@ git push origin main
 
 ```bash
 # En GitHub:
-# 1. Ir a Actions → CD - Deploy to Production
+# 1. Ir a Actions → CD - Deploy to VPS
 # 2. Click "Run workflow"
-# 3. Escribir "DEPLOY" en el campo de confirmación
+# 3. Seleccionar "production" en environment
 # 4. Click "Run workflow"
 # 5. Esperar ~5 minutos
 # 6. Verificar health checks
 
 # Verificar deployment:
-curl https://sistema-reservas.com/health
-curl https://api.sistema-reservas.com/api/health
+curl https://reserva.wgsoft.com.co/health
+curl https://api.reserva.wgsoft.com.co/api/health
 ```
 
 ---
@@ -256,13 +263,7 @@ docker system df
 
 ```bash
 # Trigger manual deploy (desde GitHub UI)
-# Actions → CD - Deploy to Production → Run workflow
-
-# Ver logs de deployment
-# Actions → Click en workflow run → Click en job
-
-# Cancelar deployment en progreso
-# Actions → Click en workflow run → Cancel workflow
+# Actions → CD - Deploy to VPS → Run workflow
 ```
 
 ---
@@ -329,16 +330,16 @@ Marcar los que ya están configurados:
 
 ## 📊 Estado del Proyecto
 
-| Área              | Progreso | Estado                     |
-| ----------------- | -------- | -------------------------- |
-| **Backend**       | 100%     | ✅ Completo                |
-| **Frontend**      | 95%      | ✅ Casi completo           |
-| **Database**      | 100%     | ✅ Completo                |
-| **DevOps**        | 90%      | ✅ Configuración pendiente |
-| **Documentation** | 95%      | ✅ Casi completo           |
-| **Testing**       | 10%      | 🔲 Pendiente               |
-| **Monitoring**    | 0%       | 🔲 Pendiente               |
-| **Production**    | 0%       | 🔲 Pendiente deploy        |
+| Área              | Progreso | Estado               |
+| ----------------- | -------- | -------------------- |
+| **Backend**       | 100%     | ✅ Completo          |
+| **Frontend**      | 95%      | ✅ Casi completo     |
+| **Database**      | 100%     | ✅ Completo          |
+| **DevOps**        | 95%      | ✅ Listo para deploy |
+| **Documentation** | 100%     | ✅ Completo          |
+| **Testing**       | 10%      | 🔲 Pendiente         |
+| **Monitoring**    | 0%       | 🔲 Pendiente         |
+| **Production**    | 0%       | ✅ Listo para deploy |
 
 ---
 
@@ -369,6 +370,7 @@ Marcar los que ya están configurados:
 ### Documentación
 
 - `DEPLOY.md` - Guía completa de deployment
+- `DEPLOYMENT_INSTRUCTIONS.md` - Instrucciones específicas para reserva.wgsoft.com.co
 - `.github/SECRETS.md` - Setup de secrets
 - `README.md` - Documentación general
 
@@ -380,6 +382,12 @@ Marcar los que ya están configurados:
 - [Stripe (Pagos)](https://stripe.com)
 - [Sentry (Monitoreo)](https://sentry.io)
 - [UptimeRobot (Monitoring)](https://uptimerobot.com)
+
+### Dominios
+
+- **Frontend**: https://reserva.wgsoft.com.co
+- **Backend/API**: https://api.reserva.wgsoft.com.co
+- **Dashboard Traefik**: https://traefik.reserva.wgsoft.com.co (si está habilitado)
 
 ---
 
@@ -398,8 +406,8 @@ Marcar los que ya están configurados:
 
 ### Checklist de Celebración
 
-- [ ] Frontend accesible en https://sistema-reservas.com
-- [ ] Backend accesible en https://api.sistema-reservas.com
+- [ ] Frontend accesible en https://reserva.wgsoft.com.co
+- [ ] Backend accesible en https://api.reserva.wgsoft.com.co
 - [ ] Database corriendo en VPS
 - [ ] SSL certificates activos (candado verde)
 - [ ] Health checks pasando
