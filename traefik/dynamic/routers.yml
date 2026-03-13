@@ -1,0 +1,98 @@
+# Traefik Dynamic Configuration - Routers
+# https://doc.traefik.io/traefik/routing/routers/
+
+http:
+  routers:
+    # Frontend Router - Main Application
+    frontend-router:
+      rule: "Host(`reservas.dominio.com`) || Host(`www.reservas.dominio.com`)"
+      entryPoints:
+        - websecure
+      service: frontend
+      tls:
+        certResolver: myresolver
+      middlewares:
+        - security-headers
+        - ratelimit
+        - compress
+
+    # Backend Router - API
+    backend-router:
+      rule: "Host(`api.reservas.dominio.com`)"
+      entryPoints:
+        - websecure
+      service: backend
+      tls:
+        certResolver: myresolver
+      middlewares:
+        - security-headers
+        - ratelimit
+        - compress
+        - cors-api
+
+    # Dashboard Router - Traefik UI
+    dashboard-router:
+      rule: "Host(`traefik.reservas.dominio.com`)"
+      entryPoints:
+        - websecure
+      service: dashboard
+      tls:
+        certResolver: myresolver
+      middlewares:
+        - dashboard-auth
+
+  services:
+    # Frontend Service
+    frontend:
+      loadBalancer:
+        servers:
+          - url: "http://frontend:3000"
+        healthCheck:
+          path: "/"
+          interval: 30s
+          timeout: 10s
+          unhealthyThreshold: 3
+        sticky:
+          cookie:
+            httpOnly: true
+            secure: true
+            sameSite: "lax"
+
+    # Backend Service
+    backend:
+      loadBalancer:
+        servers:
+          - url: "http://backend:3001"
+        healthCheck:
+          path: "/health"
+          interval: 30s
+          timeout: 10s
+          unhealthyThreshold: 3
+        sticky:
+          cookie:
+            httpOnly: true
+            secure: true
+            sameSite: "lax"
+
+    # Dashboard Service (Traefik internal)
+    dashboard:
+      loadBalancer:
+        servers:
+          - url: "http://traefik:8080"
+
+tcp:
+  routers:
+    # Optional: TCP router for database connections (if needed externally)
+    postgres-tcp:
+      rule: "HostSNI(`postgres.reservas.dominio.com`)"
+      entryPoints:
+        - postgres
+      service: postgres-service
+      tls:
+        passthrough: true
+
+  services:
+    postgres-service:
+      loadBalancer:
+        servers:
+          - address: "postgres:5432"

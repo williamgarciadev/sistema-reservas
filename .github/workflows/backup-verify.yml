@@ -1,0 +1,172 @@
+name: Backup Verification
+
+on:
+  schedule:
+    # Run every Sunday at 3:00 AM UTC
+    - cron: "0 3 * * 0"
+  workflow_dispatch:
+
+jobs:
+  verify-backups:
+    name: Verify Backups Exist
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup SSH
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.VPS_SSH_PRIVATE_KEY }}
+
+      - name: Add VPS to known hosts
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -H ${{ secrets.VPS_HOST }} >> ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: Verify Backups
+        id: verify
+        run: |
+          BACKUP_EXISTS=false
+          BACKUP_COUNT=0
+          LATEST_BACKUP=""
+          BACKUP_SIZE=""
+
+          ssh -o StrictHostKeyChecking=no ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} << 'ENDSSH' > /tmp/backup_info.txt
+            BACKUP_DIR="/opt/backups/sistema-reservas"
+            
+            echo "=== Checking database backups ==="
+            if [ -d "$BACKUP_DIR" ]; then
+              DB_BACKUPS=$(ls -1 $BACKUP_DIR/db-backup-*.sql.gz 2>/dev/null | wc -l)
+              echo "Database backup count: $DB_BACKUPS"
+              
+              if [ "$DB_BACKUPS" -gt 0 ]; then
+                LATEST_DB=$(ls -t $BACKUP_DIR/db-backup-*.sql.gz 2>/dev/null | head -1)
+                if [ -n "$LATEST_DB" ]; then
+                  LATEST_DATE=$(stat -c %y "$LATEST_DB" 2>/dev/null | cut -d' ' -f1)
+                  LATEST_SIZE=$(du -h "$LATEST_DB" 2>/dev/null | cut -f1)
+                  echo "Latest DB backup: $LATEST_DB"
+                  echo "Date: $LATEST_DATE"
+                  echo "Size: $LATEST_SIZE"
+                fi
+              fi
+            else
+              echo "Backup directory does not exist!"
+            fi
+            
+            echo "=== Checking volume backups ==="
+            docker volume ls --filter name=postgres_data --format "{{.Name}}" > /tmp/volume_check.txt
+            if grep -q "postgres_data" /tmp/volume_check.txt; then
+              echo "PostgreSQL volume exists"
+            else
+              echo "PostgreSQL volume NOT found!"
+            fi
+            
+            echo "=== Backup verification complete ==="
+          ENDSSH
+
+          # Parse results
+          cat /tmp/backup_info.txt
+
+          if grep -q "Database backup count: [1-9]" /tmp/backup_info.txt; then
+            BACKUP_EXISTS=true
+            BACKUP_COUNT=$(grep "Database backup count:" /tmp/backup_info.txt | grep -oE '[0-9]+')
+          fi
+
+          if [ "$BACKUP_EXISTS" = true ]; then
+            echo "Backups verified successfully!"
+            echo "exists=true" >> $GITHUB_OUTPUT
+            echo "count=$BACKUP_COUNT" >> $GITHUB_OUTPUT
+          else
+            echo "❌ No backups found or backup directory missing!"
+            echo "exists=false" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+
+      - name: Generate Backup Report
+        id: report
+        if: always()
+        run: |
+          cat > /tmp/backup_report.md << EOF
+          # Backup Verification Report
+
+          **Date**: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
+          **Repository**: ${{ github.repository }}
+          **Workflow**: ${{ github.workflow }}
+
+          ## Results
+
+          - **Backup Status**: ${{ steps.verify.outputs.exists == 'true' && '✅ PASS' || '❌ FAIL' }}
+          - **Backup Count**: ${{ steps.verify.outputs.count || '0' }}
+
+          ## Details
+
+          EOF
+
+          cat /tmp/backup_info.txt >> /tmp/backup_report.md
+
+          echo "report_path=/tmp/backup_report.md" >> $GITHUB_OUTPUT
+
+      - name: Upload Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backup-verification-report
+          path: /tmp/backup_report.md
+          retention-days: 30
+
+      - name: Send Notification on Failure
+        if: failure()
+        run: |
+          echo "❌ BACKUP VERIFICATION FAILED"
+          echo ""
+          echo "No backups were found on the VPS!"
+          echo ""
+          echo "Immediate action required:"
+          echo "1. Check if backup cron job is running on VPS"
+          echo "2. Verify backup directory permissions"
+          echo "3. Check disk space on VPS"
+          echo "4. Review backup script logs"
+          echo ""
+          echo "VPS Host: ${{ secrets.VPS_HOST }}"
+          echo "Backup Directory: /opt/backups/sistema-reservas"
+          echo ""
+          echo "Please investigate immediately!"
+
+          # If webhook URL is configured, send notification
+          if [ -n "${{ secrets.SLACK_WEBHOOK_URL }}" ]; then
+            curl -X POST -H 'Content-type: application/json' \
+              --data '{
+                "text": "❌ *Backup Verification Failed*\n\nNo backups found on VPS!\n\n*Repository*: ${{ github.repository }}\n*VPS Host*: ${{ secrets.VPS_HOST }}\n\nImmediate action required!"
+              }' \
+              ${{ secrets.SLACK_WEBHOOK_URL }} || echo "Failed to send Slack notification"
+          fi
+
+          if [ -n "${{ secrets.DISCORD_WEBHOOK_URL }}" ]; then
+            curl -X POST -H 'Content-type: application/json' \
+              --data '{
+                "content": "❌ **Backup Verification Failed**\n\nNo backups found on VPS!\n\n**Repository**: ${{ github.repository }}\n**VPS Host**: ${{ secrets.VPS_HOST }}\n\nImmediate action required!",
+                "embeds": [{
+                  "color": 15158332,
+                  "fields": [
+                    {"name": "Status", "value": "❌ FAIL", "inline": true},
+                    {"name": "Backup Count", "value": "0", "inline": true}
+                  ]
+                }]
+              }' \
+              ${{ secrets.DISCORD_WEBHOOK_URL }} || echo "Failed to send Discord notification"
+          fi
+
+          exit 1
+
+      - name: Summary
+        if: success()
+        run: |
+          echo "✅ Backup verification completed successfully!"
+          echo ""
+          echo "Summary:"
+          echo "- Backups found: ${{ steps.verify.outputs.count }}"
+          echo "- Latest verification: $(date -u)"
+          echo ""
+          echo "Next scheduled check: Sunday 3:00 AM UTC"

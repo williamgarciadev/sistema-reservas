@@ -1,80 +1,115 @@
-# GitHub Secrets Setup Guide
+# GitHub Secrets Setup Guide - VPS Deployment
 
-This document describes the required secrets for deploying `sistema-reservas`.
+This document describes the required secrets for deploying `sistema-reservas` to a VPS using GitHub Actions.
 
 ## 🔐 Required Secrets
 
-### VPS Access (Required for all deployments)
+### VPS Access (Required for Deployment)
 
-| Secret Name    | Description                      | Example                                  |
-| -------------- | -------------------------------- | ---------------------------------------- |
-| `VPS_HOST`     | Your VPS IP address or domain    | `192.168.1.100` or `vps.example.com`     |
-| `VPS_USERNAME` | SSH username                     | `root` or `deploy`                       |
-| `VPS_SSH_KEY`  | Private SSH key for deployment   | `-----BEGIN OPENSSH PRIVATE KEY-----...` |
-| `VPS_PORT`     | SSH port (optional, default: 22) | `22`                                     |
+| Secret Name           | Description                                          | Example                                  | Required |
+| --------------------- | ---------------------------------------------------- | ---------------------------------------- | -------- |
+| `VPS_HOST`            | IP address or domain of your VPS                     | `173.249.49.68` or `vps.example.com`     | ✅ Yes   |
+| `VPS_USER`            | SSH username for deployment                          | `deploy` or `root`                       | ✅ Yes   |
+| `VPS_SSH_PRIVATE_KEY` | Private SSH key for GitHub Actions to connect to VPS | `-----BEGIN OPENSSH PRIVATE KEY-----...` | ✅ Yes   |
 
-### Staging Environment
+### Database & Security
 
-| Secret Name                  | Description          | Example                                        |
-| ---------------------------- | -------------------- | ---------------------------------------------- |
-| `STAGING_DOMAIN`             | Frontend domain      | `staging.sistema-reservas.com`                 |
-| `STAGING_API_DOMAIN`         | Backend API domain   | `api-staging.sistema-reservas.com`             |
-| `STAGING_API_URL`            | API URL for frontend | `https://api-staging.sistema-reservas.com/api` |
-| `STAGING_DB_USER`            | PostgreSQL username  | `postgres`                                     |
-| `STAGING_DB_PASSWORD`        | PostgreSQL password  | `secure_password_123`                          |
-| `STAGING_DB_NAME`            | Database name        | `sistema_reservas_staging`                     |
-| `STAGING_JWT_SECRET`         | JWT signing secret   | `your-super-secret-jwt-key`                    |
-| `STAGING_JWT_REFRESH_SECRET` | JWT refresh secret   | `your-refresh-secret-key`                      |
+| Secret Name          | Description                             | Example                                       | Required |
+| -------------------- | --------------------------------------- | --------------------------------------------- | -------- |
+| `POSTGRES_PASSWORD`  | PostgreSQL database password            | `SecureP@ssw0rd!2024#XYZ`                     | ✅ Yes   |
+| `REDIS_PASSWORD`     | Redis cache password                    | `RedisP@ss!2024#ABC`                          | ✅ Yes   |
+| `JWT_SECRET`         | JWT token signing secret (min 32 chars) | `your-super-secret-jwt-key-min-32-chars-long` | ✅ Yes   |
+| `JWT_REFRESH_SECRET` | JWT refresh token secret (min 32 chars) | `your-refresh-token-secret-min-32-chars`      | ✅ Yes   |
 
-### Production Environment
+### Payment Processing (Stripe)
 
-| Secret Name               | Description          | Example                                |
-| ------------------------- | -------------------- | -------------------------------------- |
-| `PRODUCTION_DOMAIN`       | Frontend domain      | `sistema-reservas.com`                 |
-| `PRODUCTION_API_DOMAIN`   | Backend API domain   | `api.sistema-reservas.com`             |
-| `PRODUCTION_API_URL`      | API URL for frontend | `https://api.sistema-reservas.com/api` |
-| `PROD_DB_USER`            | PostgreSQL username  | `postgres`                             |
-| `PROD_DB_PASSWORD`        | PostgreSQL password  | `super_secure_production_password`     |
-| `PROD_DB_NAME`            | Database name        | `sistema_reservas_prod`                |
-| `PROD_JWT_SECRET`         | JWT signing secret   | `production-jwt-secret-64-chars-min`   |
-| `PROD_JWT_REFRESH_SECRET` | JWT refresh secret   | `production-refresh-secret-64-chars`   |
-| `PROD_RESEND_API_KEY`     | Resend email API key | `re_xxxxxxxxxxxxx`                     |
-| `PROD_STRIPE_KEY`         | Stripe secret key    | `sk_live_xxxxxxxxxxxxx`                |
+| Secret Name             | Description                   | Example                              | Required       |
+| ----------------------- | ----------------------------- | ------------------------------------ | -------------- |
+| `STRIPE_SECRET_KEY`     | Stripe secret API key         | `sk_live_51H...` or `sk_test_51H...` | ✅ Yes         |
+| `STRIPE_WEBHOOK_SECRET` | Stripe webhook signing secret | `whsec_1234567890abcdef...`          | ⚠️ Recommended |
+
+### Email Service (Resend)
+
+| Secret Name      | Description          | Example            | Required |
+| ---------------- | -------------------- | ------------------ | -------- |
+| `RESEND_API_KEY` | Resend email API key | `re_xxxxxxxxxxxxx` | ✅ Yes   |
+
+### SMS Service (Twilio)
+
+| Secret Name           | Description         | Example                      | Required    |
+| --------------------- | ------------------- | ---------------------------- | ----------- |
+| `TWILIO_ACCOUNT_SID`  | Twilio Account SID  | `ACxxxxxxxxxxxxxxxxxxxxxxxx` | ⚠️ Optional |
+| `TWILIO_AUTH_TOKEN`   | Twilio Auth Token   | `xxxxxxxxxxxxxxxxxxxxxxxx`   | ⚠️ Optional |
+| `TWILIO_PHONE_NUMBER` | Twilio phone number | `+1234567890`                | ⚠️ Optional |
+
+### Cloud Storage (Cloudflare R2)
+
+| Secret Name     | Description                | Example                                  | Required    |
+| --------------- | -------------------------- | ---------------------------------------- | ----------- |
+| `R2_ENDPOINT`   | Cloudflare R2 endpoint URL | `https://xxxxx.r2.cloudflarestorage.com` | ⚠️ Optional |
+| `R2_ACCESS_KEY` | R2 access key ID           | `xxxxxxxxxxxxxxxxxxxxxxxx`               | ⚠️ Optional |
+| `R2_SECRET_KEY` | R2 secret access key       | `xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx`       | ⚠️ Optional |
+| `R2_BUCKET`     | R2 bucket name             | `sistema-reservas-uploads`               | ⚠️ Optional |
+
+### Domain Configuration
+
+| Secret Name          | Description                                | Example                                | Required |
+| -------------------- | ------------------------------------------ | -------------------------------------- | -------- |
+| `PRODUCTION_DOMAIN`  | Frontend production domain                 | `reservas.example.com`                 | ✅ Yes   |
+| `API_DOMAIN`         | Backend API domain                         | `api.reservas.example.com`             | ✅ Yes   |
+| `PRODUCTION_API_URL` | Full API URL for frontend                  | `https://api.reservas.example.com/api` | ✅ Yes   |
+| `ACME_EMAIL`         | Email for SSL certificates (Let's Encrypt) | `admin@example.com`                    | ✅ Yes   |
+
+### Notification Webhooks (Optional)
+
+| Secret Name           | Description                        | Example                                | Required    |
+| --------------------- | ---------------------------------- | -------------------------------------- | ----------- |
+| `SLACK_WEBHOOK_URL`   | Slack webhook for notifications    | `https://hooks.slack.com/...`          | ⚠️ Optional |
+| `DISCORD_WEBHOOK_URL` | Discord webhook for notifications  | `https://discord.com/api/webhooks/...` | ⚠️ Optional |
+| `CODECOV_TOKEN`       | Codecov token for coverage reports | `xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx` | ⚠️ Optional |
 
 ## 📋 How to Set Up Secrets
 
 ### 1. Generate SSH Key for VPS
 
 ```bash
-# Generate new SSH key
-ssh-keygen -t ed25519 -C "github-actions@sistema-reservas" -f ~/.github/id_github_actions
+# Generate new SSH key (ed25519 recommended)
+ssh-keygen -t ed25519 -C "github-actions@sistema-reservas" -f ~/.ssh/github_actions_vps
 
 # Copy public key to VPS
-ssh-copy-id -i ~/.github/id_github_actions.pub user@your-vps-ip
+ssh-copy-id -i ~/.ssh/github_actions_vps.pub deploy@YOUR_VPS_IP
 
-# Copy private key to GitHub Secrets
-cat ~/.github/id_github_actions | gh secret set VPS_SSH_KEY
+# Test connection
+ssh -i ~/.ssh/github_actions_vps deploy@YOUR_VPS_IP
+
+# Add private key to GitHub Secrets
+gh secret set VPS_SSH_PRIVATE_KEY < ~/.ssh/github_actions_vps
 ```
 
 ### 2. Set Secrets via GitHub CLI
 
 ```bash
 # VPS Access
-gh secret set VPS_HOST --body="your-vps-ip.com"
-gh secret set VPS_USERNAME --body="root"
-gh secret set VPS_SSH_KEY < ~/.github/id_github_actions
+gh secret set VPS_HOST --body="173.249.49.68"
+gh secret set VPS_USER --body="deploy"
+gh secret set VPS_SSH_PRIVATE_KEY < ~/.ssh/github_actions_vps
 
-# Staging
-gh secret set STAGING_DOMAIN --body="staging.sistema-reservas.com"
-gh secret set STAGING_API_DOMAIN --body="api-staging.sistema-reservas.com"
-gh secret set STAGING_DB_PASSWORD --body="your-staging-password"
-gh secret set STAGING_JWT_SECRET --body="your-staging-jwt-secret"
+# Database & Security
+gh secret set POSTGRES_PASSWORD --body="SecureP@ssw0rd!2024#XYZ"
+gh secret set REDIS_PASSWORD --body="RedisP@ss!2024#ABC"
+gh secret set JWT_SECRET --body="your-super-secret-jwt-key-min-32-chars-long"
+gh secret set JWT_REFRESH_SECRET --body="your-refresh-token-secret-min-32-chars"
 
-# Production
-gh secret set PRODUCTION_DOMAIN --body="sistema-reservas.com"
-gh secret set PRODUCTION_API_DOMAIN --body="api.sistema-reservas.com"
-gh secret set PROD_DB_PASSWORD --body="your-production-password"
-gh secret set PROD_JWT_SECRET --body="your-production-jwt-secret"
+# Domains
+gh secret set PRODUCTION_DOMAIN --body="reservas.example.com"
+gh secret set API_DOMAIN --body="api.reservas.example.com"
+gh secret set PRODUCTION_API_URL --body="https://api.reservas.example.com/api"
+gh secret set ACME_EMAIL --body="admin@example.com"
+
+# Services
+gh secret set STRIPE_SECRET_KEY --body="sk_live_..."
+gh secret set STRIPE_WEBHOOK_SECRET --body="whsec_..."
+gh secret set RESEND_API_KEY --body="re_..."
 ```
 
 ### 3. Or Set via GitHub UI
@@ -83,24 +118,42 @@ gh secret set PROD_JWT_SECRET --body="your-production-jwt-secret"
 2. Navigate to **Settings** → **Secrets and variables** → **Actions**
 3. Click **New repository secret**
 4. Add each secret name and value
+5. Repeat for all required secrets
 
 ## 🔒 Security Best Practices
 
 1. **Never commit secrets** to the repository
-2. **Use strong passwords** (minimum 32 characters for production)
-3. **Rotate secrets regularly** (every 90 days recommended)
-4. **Use different secrets** for staging and production
-5. **Enable secret scanning** in repository settings
-6. **Limit secret access** to necessary workflows only
+2. **Use strong passwords** (minimum 32 characters for production secrets)
+3. **Use ed25519 SSH keys** (more secure than RSA)
+4. **Rotate secrets regularly** (every 90 days recommended)
+5. **Use different secrets** for staging and production environments
+6. **Enable secret scanning** in repository settings
+7. **Use GitHub Environments** to restrict deployment access
+8. **Enable required reviewers** for production deployments
 
-## 🧪 Testing Secrets
+### Generate Secure Secrets
+
+```bash
+# Generate secure JWT secret (64 chars)
+openssl rand -base64 48
+
+# Generate secure password (32 chars)
+openssl rand -base64 24
+
+# Generate Redis password
+openssl rand -base64 24
+```
+
+## 🧪 Testing Deployment
 
 After setting up secrets, test the deployment:
 
 1. Go to **Actions** tab
-2. Select **CD - Deploy to Staging**
+2. Select **CD - Deploy to VPS**
 3. Click **Run workflow**
 4. Monitor the deployment logs
+5. Verify health checks pass
+6. Test the application endpoints
 
 ## 🚨 Troubleshooting
 
@@ -108,41 +161,41 @@ After setting up secrets, test the deployment:
 
 ```bash
 # Test SSH connection manually
-ssh -i ~/.github/id_github_actions user@your-vps-ip
+ssh -i ~/.ssh/github_actions_vps deploy@YOUR_VPS_IP
+
+# Check SSH agent
+eval "$(ssh-agent -s)"
+ssh-add ~/.ssh/github_actions_vps
 ```
 
-### Database Connection Failed
+### Deployment Fails at Health Check
 
-- Verify database credentials in secrets
-- Check if PostgreSQL container is running on VPS
+1. Check workflow logs in GitHub Actions
+2. Verify all required secrets are set correctly
+3. Ensure VPS has enough resources (RAM, CPU, disk)
+4. Check if Docker is running on VPS
+5. Verify domain DNS points to VPS IP
+
+### Container Won't Start
+
+```bash
+# SSH to VPS and check logs
+ssh deploy@YOUR_VPS_IP
+
+# Check container status
+docker-compose -f /opt/sistema-reservas/docker-compose.prod.yml ps
+
+# View logs
+docker-compose -f /opt/sistema-reservas/docker-compose.prod.yml logs backend
+docker-compose -f /opt/sistema-reservas/docker-compose.prod.yml logs frontend
+```
+
+### Database Connection Issues
+
+- Verify `POSTGRES_PASSWORD` secret is correct
+- Check if PostgreSQL container is running
 - Ensure network connectivity between containers
-
-### Deployment Fails
-
-- Check workflow logs in GitHub Actions
-- Verify all required secrets are set
-- Ensure VPS has enough resources (RAM, CPU, disk)
-
-## 📊 Environment Variables in Deployments
-
-The workflows automatically inject these environment variables:
-
-### Backend
-
-```yaml
-NODE_ENV: production
-DATABASE_URL: (from secrets)
-REDIS_URL: (from container network)
-JWT_SECRET: (from secrets)
-JWT_REFRESH_SECRET: (from secrets)
-```
-
-### Frontend
-
-```yaml
-NODE_ENV: production
-NEXT_PUBLIC_API_URL: (from secrets)
-```
+- Check database user permissions
 
 ## 🔄 Secret Rotation
 
@@ -150,9 +203,62 @@ To rotate a secret:
 
 1. Generate new secret value
 2. Update in GitHub Secrets
-3. Redeploy to staging: `workflow_dispatch` on `cd-staging.yml`
-4. Test thoroughly
-5. Redeploy to production: `workflow_dispatch` on `cd-production.yml`
+3. Trigger deployment: **Actions** → **CD - Deploy to VPS** → **Run workflow**
+4. Monitor deployment logs
+5. Test application functionality
+
+## 📊 Environment Variables
+
+The workflows automatically inject these environment variables into containers:
+
+### Backend Container
+
+```yaml
+NODE_ENV: production
+DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD}@postgres:5432/sistema_reservas
+REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+JWT_SECRET: ${JWT_SECRET}
+JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
+STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY}
+RESEND_API_KEY: ${RESEND_API_KEY}
+```
+
+### Frontend Container
+
+```yaml
+NODE_ENV: production
+NEXT_PUBLIC_API_URL: ${PRODUCTION_API_URL}
+```
+
+## 🛡️ GitHub Environments (Recommended)
+
+For additional security, use GitHub Environments:
+
+1. Go to **Settings** → **Environments**
+2. Click **New environment** → Name: `production`
+3. Configure:
+   - **Required reviewers**: Add team members
+   - **Deployment branches**: `main` only
+   - **Environment variables**: Add domain configs
+   - **Environment secrets**: Add production secrets
+
+## 📈 Monitoring & Alerts
+
+### Backup Verification
+
+The `backup-verify.yml` workflow runs weekly to:
+
+- Verify database backups exist
+- Check backup freshness
+- Send notifications if backups are missing
+
+### Health Checks
+
+The deployment workflow includes:
+
+- Post-deployment health checks (10 retries)
+- Automatic rollback if health checks fail
+- Status notifications
 
 ---
 

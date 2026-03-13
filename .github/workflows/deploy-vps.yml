@@ -1,0 +1,348 @@
+name: CD - Deploy to VPS
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Environment to deploy to"
+        required: true
+        default: "production"
+        type: choice
+        options:
+          - production
+          - staging
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_PREFIX: ${{ github.repository_owner }}/sistema-reservas
+
+jobs:
+  # Build and Push Backend
+  build-and-push-backend:
+    name: Build & Push Backend
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      backend-tag: ${{ steps.meta-backend.outputs.tags }}
+      backend-digest: ${{ steps.build-backend.outputs.digest }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata for Backend
+        id: meta-backend
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/backend
+          tags: |
+            type=sha,prefix=
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+
+      - name: Build and push Backend
+        id: build-backend
+        uses: docker/build-push-action@v5
+        with:
+          context: ./apps/backend
+          file: ./apps/backend/Dockerfile
+          push: true
+          tags: ${{ steps.meta-backend.outputs.tags }}
+          labels: ${{ steps.meta-backend.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          platforms: linux/amd64
+
+  # Build and Push Frontend
+  build-and-push-frontend:
+    name: Build & Push Frontend
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      frontend-tag: ${{ steps.meta-frontend.outputs.tags }}
+      frontend-digest: ${{ steps.build-frontend.outputs.digest }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata for Frontend
+        id: meta-frontend
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/frontend
+          tags: |
+            type=sha,prefix=
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+
+      - name: Build and push Frontend
+        id: build-frontend
+        uses: docker/build-push-action@v5
+        with:
+          context: ./apps/frontend
+          file: ./apps/frontend/Dockerfile
+          push: true
+          tags: ${{ steps.meta-frontend.outputs.tags }}
+          labels: ${{ steps.meta-frontend.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          platforms: linux/amd64
+          build-args: |
+            NEXT_PUBLIC_API_URL=${{ secrets.PRODUCTION_API_URL }}
+
+  # Deploy to VPS
+  deploy-vps:
+    name: Deploy to VPS
+    runs-on: ubuntu-latest
+    needs: [build-and-push-backend, build-and-push-frontend]
+    environment:
+      name: production
+      url: https://${{ secrets.PRODUCTION_DOMAIN }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup SSH
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.VPS_SSH_PRIVATE_KEY }}
+
+      - name: Add VPS to known hosts
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -H ${{ secrets.VPS_HOST }} >> ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: Deploy to VPS
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          BACKEND_IMAGE: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/backend:${{ github.sha }}
+          FRONTEND_IMAGE: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/frontend:${{ github.sha }}
+          POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+          REDIS_PASSWORD: ${{ secrets.REDIS_PASSWORD }}
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          JWT_REFRESH_SECRET: ${{ secrets.JWT_REFRESH_SECRET }}
+          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+          STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          TWILIO_ACCOUNT_SID: ${{ secrets.TWILIO_ACCOUNT_SID }}
+          TWILIO_AUTH_TOKEN: ${{ secrets.TWILIO_AUTH_TOKEN }}
+          TWILIO_PHONE_NUMBER: ${{ secrets.TWILIO_PHONE_NUMBER }}
+          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+          R2_ACCESS_KEY: ${{ secrets.R2_ACCESS_KEY }}
+          R2_SECRET_KEY: ${{ secrets.R2_SECRET_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          PRODUCTION_DOMAIN: ${{ secrets.PRODUCTION_DOMAIN }}
+          API_DOMAIN: ${{ secrets.API_DOMAIN }}
+          ACME_EMAIL: ${{ secrets.ACME_EMAIL }}
+          NEXT_PUBLIC_API_URL: ${{ secrets.PRODUCTION_API_URL }}
+        run: |
+          ssh -o StrictHostKeyChecking=no ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} << 'ENDSSH'
+            set -e
+            
+            # Configuration
+            DEPLOY_DIR="/opt/sistema-reservas"
+            BACKUP_DIR="/opt/backups/sistema-reservas"
+            
+            echo "=== Starting deployment ==="
+            echo "Timestamp: $(date -u)"
+            echo "Commit SHA: ${{ github.sha }}"
+            
+            # Create backup before deployment
+            echo "=== Creating pre-deployment backup ==="
+            mkdir -p $BACKUP_DIR
+            docker-compose -f $DEPLOY_DIR/docker-compose.prod.yml down || true
+            
+            # Backup database
+            if [ -f /opt/backups/sistema-reservas/db-backup-$(date +%Y%m%d).sql.gz ]; then
+              cp /opt/backups/sistema-reservas/db-backup-$(date +%Y%m%d).sql.gz $BACKUP_DIR/pre-deploy-db-backup-$(date +%s).sql.gz
+            fi
+            
+            # Backup docker-compose configuration
+            if [ -f $DEPLOY_DIR/docker-compose.prod.yml ]; then
+              cp $DEPLOY_DIR/docker-compose.prod.yml $BACKUP_DIR/pre-deploy-docker-compose-$(date +%s).yml
+            fi
+            
+            echo "=== Pulling new images ==="
+            # Login to registry
+            echo ${{ secrets.GITHUB_TOKEN }} | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+            
+            # Pull new images
+            docker pull $BACKEND_IMAGE
+            docker pull $FRONTEND_IMAGE
+            
+            echo "=== Updating docker-compose ==="
+            cd $DEPLOY_DIR
+            
+            # Update environment file
+            cat > .env << EOF
+            # Database
+            DB_USER=postgres
+            DB_PASSWORD=$POSTGRES_PASSWORD
+            DB_NAME=sistema_reservas
+            
+            # Redis
+            REDIS_PASSWORD=$REDIS_PASSWORD
+            
+            # JWT
+            JWT_SECRET=$JWT_SECRET
+            JWT_REFRESH_SECRET=$JWT_REFRESH_SECRET
+            
+            # Domains
+            FRONTEND_DOMAIN=$PRODUCTION_DOMAIN
+            API_DOMAIN=$API_DOMAIN
+            TRAEFIK_DOMAIN=traefik.$PRODUCTION_DOMAIN
+            ACME_EMAIL=$ACME_EMAIL
+            
+            # Backend
+            FRONTEND_URL=https://$FRONTEND_DOMAIN
+            NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
+            
+            # Services
+            STRIPE_SECRET_KEY=$STRIPE_SECRET_KEY
+            STRIPE_WEBHOOK_SECRET=$STRIPE_WEBHOOK_SECRET
+            RESEND_API_KEY=$RESEND_API_KEY
+            TWILIO_ACCOUNT_SID=$TWILIO_ACCOUNT_SID
+            TWILIO_AUTH_TOKEN=$TWILIO_AUTH_TOKEN
+            TWILIO_PHONE_NUMBER=$TWILIO_PHONE_NUMBER
+            
+            # R2 Storage
+            R2_ENDPOINT=$R2_ENDPOINT
+            R2_ACCESS_KEY=$R2_ACCESS_KEY
+            R2_SECRET_KEY=$R2_SECRET_KEY
+            R2_BUCKET=$R2_BUCKET
+            EOF
+            
+            # Update docker-compose with new image tags
+            sed -i "s|image: ghcr.io/.*/backend:.*|image: $BACKEND_IMAGE|g" docker-compose.prod.yml
+            sed -i "s|image: ghcr.io/.*/frontend:.*|image: $FRONTEND_IMAGE|g" docker-compose.prod.yml
+            
+            echo "=== Starting services ==="
+            docker-compose -f docker-compose.prod.yml up -d
+            
+            # Wait for services to be healthy
+            echo "=== Waiting for services to be healthy ==="
+            sleep 30
+            
+            echo "=== Deployment completed ==="
+          ENDSSH
+
+      - name: Health Check
+        id: health-check
+        run: |
+          MAX_RETRIES=10
+          RETRY_COUNT=0
+          HEALTHY=false
+
+          while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+            echo "Health check attempt $((RETRY_COUNT + 1))/$MAX_RETRIES"
+            
+            # Check backend health
+            BACKEND_HEALTH=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 https://${{ secrets.API_DOMAIN }}/health || echo "000")
+            
+            # Check frontend health
+            FRONTEND_HEALTH=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 https://${{ secrets.PRODUCTION_DOMAIN }} || echo "000")
+            
+            echo "Backend health: $BACKEND_HEALTH"
+            echo "Frontend health: $FRONTEND_HEALTH"
+            
+            if [ "$BACKEND_HEALTH" = "200" ] && [ "$FRONTEND_HEALTH" = "200" ]; then
+              HEALTHY=true
+              break
+            fi
+            
+            RETRY_COUNT=$((RETRY_COUNT + 1))
+            sleep 10
+          done
+
+          if [ "$HEALTHY" = true ]; then
+            echo "Health check passed!"
+            echo "healthy=true" >> $GITHUB_OUTPUT
+          else
+            echo "Health check failed after $MAX_RETRIES attempts"
+            echo "healthy=false" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+
+      - name: Rollback on Failure
+        if: failure() && steps.health-check.outputs.healthy == 'false'
+        run: |
+          echo "=== Health check failed, initiating rollback ==="
+
+          ssh -o StrictHostKeyChecking=no ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} << 'ENDSSH'
+            set -e
+            
+            DEPLOY_DIR="/opt/sistema-reservas"
+            BACKUP_DIR="/opt/backups/sistema-reservas"
+            
+            echo "=== Rolling back deployment ==="
+            
+            # Find latest backup
+            LATEST_BACKUP=$(ls -t $BACKUP_DIR/pre-deploy-docker-compose-*.yml 2>/dev/null | head -1)
+            
+            if [ -n "$LATEST_BACKUP" ]; then
+              echo "Found backup: $LATEST_BACKUP"
+              
+              # Stop current deployment
+              docker-compose -f $DEPLOY_DIR/docker-compose.prod.yml down || true
+              
+              # Restore previous configuration
+              cp $LATEST_BACKUP $DEPLOY_DIR/docker-compose.prod.yml
+              
+              # Start previous version
+              cd $DEPLOY_DIR
+              docker-compose -f docker-compose.prod.yml up -d
+              
+              echo "=== Rollback completed ==="
+            else
+              echo "No backup found, manual intervention required!"
+              exit 1
+            fi
+          ENDSSH
+
+          echo "Rollback completed. Please check the deployment manually."
+
+      - name: Notify Deployment Status
+        if: always()
+        run: |
+          STATUS="${{ job.status }}"
+          if [ "$STATUS" = "success" ]; then
+            echo "✅ Deployment successful!"
+            echo "Frontend: https://${{ secrets.PRODUCTION_DOMAIN }}"
+            echo "Backend: https://${{ secrets.API_DOMAIN }}/health"
+          else
+            echo "❌ Deployment failed!"
+            echo "Rollback initiated. Please check logs for details."
+          fi

@@ -1,0 +1,100 @@
+# Traefik Dynamic Configuration - Default Middlewares & TLS
+# https://doc.traefik.io/traefik/middlewares/overview/
+
+http:
+  middlewares:
+    # Security Headers
+    security-headers:
+      headers:
+        customBrowserXSSValue: 0
+        contentTypeNosniff: true
+        forceSTSHeader: true
+        frameDeny: true
+        referrerPolicy: "strict-origin-when-cross-origin"
+        stsIncludeSubdomains: true
+        stsPreload: true
+        stsSeconds: 31536000
+        customFrameOptionsValue: "SAMEORIGIN"
+        customRequestHeaders:
+          X-Forwarded-Proto: "https"
+
+    # Rate Limiting - 100 requests per 30 seconds per IP
+    ratelimit:
+      rateLimit:
+        average: 100
+        burst: 50
+        period: 30s
+        sourceCriterion:
+          ipStrategy:
+            depth: 2
+            excludedIPs:
+              - "127.0.0.1"
+
+    # Compression
+    compress:
+      compress:
+        excludedContentTypes:
+          - text/event-stream
+
+    # Dashboard Basic Auth (optional - configure via env or htpasswd)
+    dashboard-auth:
+      basicAuth:
+        users:
+          # Generate with: htpasswd -nb admin password
+          # Replace with your own credentials
+          - "admin:$$apr1$$H6uskkkW$$IgXLP6ewTrSuBkTrqE8wj/"
+
+    # Redirect HTTP to HTTPS
+    redirect-https:
+      redirectScheme:
+        scheme: https
+        permanent: true
+
+    # CORS for API
+    cors-api:
+      headers:
+        accessControlAllowOriginList:
+          - "https://reservas.dominio.com"
+          - "https://www.reservas.dominio.com"
+        accessControlAllowMethods:
+          - "GET"
+          - "POST"
+          - "PUT"
+          - "DELETE"
+          - "OPTIONS"
+        accessControlAllowHeaders:
+          - "Origin"
+          - "Content-Type"
+          - "Authorization"
+          - "X-Requested-With"
+        accessControlMaxAge: 3600
+        addVaryHeader: true
+
+tls:
+  options:
+    # Strong TLS Configuration
+    default:
+      minVersion: VersionTLS12
+      cipherSuites:
+        - TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384
+        - TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384
+        - TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256
+        - TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256
+        - TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305
+        - TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305
+      sniStrict: true
+
+    # Modern TLS (TLS 1.3 only)
+    modern:
+      minVersion: VersionTLS13
+      sniStrict: true
+
+    # Intermediate TLS (TLS 1.2+)
+    intermediate:
+      minVersion: VersionTLS12
+      cipherSuites:
+        - TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384
+        - TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384
+        - TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256
+        - TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256
+      sniStrict: true
