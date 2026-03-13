@@ -1,0 +1,199 @@
+name: CD - Deploy to Staging
+
+on:
+  push:
+    branches: [develop]
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME_BACKEND: ${{ github.repository }}/backend
+  IMAGE_NAME_FRONTEND: ${{ github.repository }}/frontend
+
+jobs:
+  # Build and push backend image
+  build-backend:
+    name: Build Backend Image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image_tag: ${{ steps.meta.outputs.tags }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_BACKEND }}
+          tags: |
+            type=sha,prefix=staging-
+            type=raw,value=staging-latest
+
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: ./apps/backend
+          file: ./apps/backend/Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # Build and push frontend image
+  build-frontend:
+    name: Build Frontend Image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    needs: [build-backend]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_FRONTEND }}
+          tags: |
+            type=sha,prefix=staging-
+            type=raw,value=staging-latest
+
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: ./apps/frontend
+          file: ./apps/frontend/Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            NEXT_PUBLIC_API_URL=${{ secrets.STAGING_API_URL }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # Deploy to VPS
+  deploy:
+    name: Deploy to Staging VPS
+    runs-on: ubuntu-latest
+    needs: [build-backend, build-frontend]
+    environment:
+      name: staging
+      url: https://${{ secrets.STAGING_DOMAIN }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Deploy to VPS via SSH
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USERNAME }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_PORT || 22 }}
+          script: |
+            # Create staging directory
+            mkdir -p ~/sistema-reservas-staging
+            cd ~/sistema-reservas-staging
+
+            # Create/update docker-compose.staging.yml
+            cat > docker-compose.staging.yml << 'EOF'
+            version: '3.8'
+            services:
+              postgres:
+                image: postgres:15-alpine
+                container_name: staging-db
+                environment:
+                  POSTGRES_USER: ${{ secrets.STAGING_DB_USER }}
+                  POSTGRES_PASSWORD: ${{ secrets.STAGING_DB_PASSWORD }}
+                  POSTGRES_DB: ${{ secrets.STAGING_DB_NAME }}
+                volumes:
+                  - staging_postgres_data:/var/lib/postgresql/data
+                networks:
+                  - staging-network
+              
+              redis:
+                image: redis:7-alpine
+                container_name: staging-redis
+                networks:
+                  - staging-network
+              
+              backend:
+                image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_BACKEND }}:staging-latest
+                container_name: staging-backend
+                environment:
+                  NODE_ENV: production
+                  DATABASE_URL: postgresql://${{ secrets.STAGING_DB_USER }}:${{ secrets.STAGING_DB_PASSWORD }}@postgres:5432/${{ secrets.STAGING_DB_NAME }}
+                  REDIS_URL: redis://redis:6379
+                  JWT_SECRET: ${{ secrets.STAGING_JWT_SECRET }}
+                  JWT_REFRESH_SECRET: ${{ secrets.STAGING_JWT_REFRESH_SECRET }}
+                depends_on:
+                  - postgres
+                  - redis
+                networks:
+                  - staging-network
+                labels:
+                  - "traefik.enable=true"
+                  - "traefik.http.routers.staging-backend.rule=Host(`${{ secrets.STAGING_API_DOMAIN }}`)"
+              
+              frontend:
+                image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_FRONTEND }}:staging-latest
+                container_name: staging-frontend
+                environment:
+                  NEXT_PUBLIC_API_URL: https://${{ secrets.STAGING_API_DOMAIN }}/api
+                depends_on:
+                  - backend
+                networks:
+                  - staging-network
+                labels:
+                  - "traefik.enable=true"
+                  - "traefik.http.routers.staging-frontend.rule=Host(`${{ secrets.STAGING_DOMAIN }}`)"
+
+            volumes:
+              staging_postgres_data:
+
+            networks:
+              staging-network:
+                driver: bridge
+            EOF
+
+            # Pull latest images
+            docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_BACKEND }}:staging-latest
+            docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_FRONTEND }}:staging-latest
+
+            # Run migrations
+            docker run --rm --network staging-network \
+              -e DATABASE_URL=postgresql://${{ secrets.STAGING_DB_USER }}:${{ secrets.STAGING_DB_PASSWORD }}@postgres:5432/${{ secrets.STAGING_DB_NAME }} \
+              ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_BACKEND }}:staging-latest \
+              npx prisma migrate deploy
+
+            # Deploy with docker-compose
+            docker-compose -f docker-compose.staging.yml up -d
+
+            # Cleanup old images
+            docker image prune -f --filter "until=24h"

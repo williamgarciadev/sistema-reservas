@@ -1,0 +1,26 @@
+# Code Owners for sistema-reservas
+# https://help.github.com/articles/about-codeowners/
+
+# Default owners for the entire repository
+* @williamgarciadev
+
+# Backend code
+/apps/backend/** @williamgarciadev
+
+# Frontend code
+/apps/frontend/** @williamgarciadev
+
+# Shared packages
+/packages/shared/** @williamgarciadev
+
+# DevOps and Infrastructure
+/.github/** @williamgarciadev
+/docker-compose.yml @williamgarciadev
+**/Dockerfile @williamgarciadev
+
+# Database and migrations
+**/prisma/** @williamgarciadev
+
+# Documentation
+*.md @williamgarciadev
+/docs/** @williamgarciadev
