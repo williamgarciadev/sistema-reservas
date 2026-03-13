@@ -21,9 +21,9 @@ entryPoints:
       tls:
         certResolver: myresolver
         domains:
-          - main: "reservas.dominio.com"
+          - main: "reserva.wgsoft.com.co"
             sans:
-              - "*.reservas.dominio.com"
+              - "*.reserva.wgsoft.com.co"
 
 providers:
   docker:

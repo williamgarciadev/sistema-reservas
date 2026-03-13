@@ -127,7 +127,7 @@ ssh root@<vps-ip>
 
 # 2. Clonar repositorio
 sudo -iu deploy
-git clone <repo-url> ~/sistema-reservas
+git clone https://github.com/williamgarciadev/sistema-reservas ~/sistema-reservas
 cd ~/sistema-reservas
 
 # 3. Configurar variables de entorno
@@ -141,6 +141,24 @@ docker compose -f docker-compose.prod.yml up -d
 
 # 5. Verificar
 ./scripts/health-check.sh
+```
+
+### Despliegue para reserva.wgsoft.com.co
+
+La aplicación está configurada para desplegarse en el dominio `reserva.wgsoft.com.co` con los siguientes subdominios:
+
+- **Frontend**: https://reserva.wgsoft.com.co
+- **Backend/API**: https://api.reserva.wgsoft.com.co
+- **Dashboard Traefik**: https://traefik.reserva.wgsoft.com.co (si está habilitado)
+
+Asegúrate de que los siguientes registros DNS apunten a la IP de tu VPS:
+
+```
+A    reserva.wgsoft.com.co          -> TU_IP_VPS
+A    api.reserva.wgsoft.com.co      -> TU_IP_VPS
+A    traefik.reserva.wgsoft.com.co  -> TU_IP_VPS (opcional)
+```
+
 ```
 
 ### Estado del Deployment
@@ -163,3 +181,4 @@ docker compose -f docker-compose.prod.yml up -d
 ## Licencia
 
 MIT
+```

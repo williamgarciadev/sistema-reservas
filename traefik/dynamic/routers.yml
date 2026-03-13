@@ -5,7 +5,7 @@ http:
   routers:
     # Frontend Router - Main Application
     frontend-router:
-      rule: "Host(`reservas.dominio.com`) || Host(`www.reservas.dominio.com`)"
+      rule: "Host(`reserva.wgsoft.com.co`) || Host(`www.reserva.wgsoft.com.co`)"
       entryPoints:
         - websecure
       service: frontend
@@ -18,7 +18,7 @@ http:
 
     # Backend Router - API
     backend-router:
-      rule: "Host(`api.reservas.dominio.com`)"
+      rule: "Host(`api.reserva.wgsoft.com.co`)"
       entryPoints:
         - websecure
       service: backend
@@ -32,7 +32,7 @@ http:
 
     # Dashboard Router - Traefik UI
     dashboard-router:
-      rule: "Host(`traefik.reservas.dominio.com`)"
+      rule: "Host(`traefik.reserva.wgsoft.com.co`)"
       entryPoints:
         - websecure
       service: dashboard

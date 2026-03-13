@@ -54,8 +54,8 @@ http:
     cors-api:
       headers:
         accessControlAllowOriginList:
-          - "https://reservas.dominio.com"
-          - "https://www.reservas.dominio.com"
+          - "https://reserva.wgsoft.com.co"
+          - "https://www.reserva.wgsoft.com.co"
         accessControlAllowMethods:
           - "GET"
           - "POST"
