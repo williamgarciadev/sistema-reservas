@@ -1,0 +1,26 @@
+Para Retomar Mañana
+Opción 1: Comando directo (recomendado)
+/sdd-apply sistema-reservas --batch MVP-1
+El sistema automáticamente:
+1. Buscará el estado en Engram (mem_search con topic_key sdd/sistema-reservas/tasks)
+2. Recuperará los artefactos de spec, design y tasks
+3. Iniciará el batch MVP-1
+---
+Opción 2: Pedir contexto primero
+"¿En qué quedamos con sistema-reservas?"
+Yo haré:
+1. mem_context → veo sesiones recientes
+2. mem_search(query: "sistema-reservas", project: "sistema-reservas") → recupero artefactos
+3. Te muestro el estado y próximo paso
+---
+Opción 3: Ver estado completo
+/sdd-continue sistema-reservas
+Este comando lee el state.yaml y te dice qué fase sigue.
+---
+Lo que ya está guardado
+Qué	Dónde
+Session summary	Engram (auto-recuperable)
+Spec	openspec/changes/sistema-reservas/artifacts/spec.md + Engram
+Design	openspec/changes/sistema-reservas/artifacts/design.md + Engram
+Tasks	openspec/changes/sistema-reservas/artifacts/tasks.md + Engram
+State	openspec/changes/sistema-reservas/state.yaml

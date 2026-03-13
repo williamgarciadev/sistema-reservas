@@ -1,0 +1,100 @@
+# SDD State: Sistema de Reservas de Citas de Servicios
+# Modo: hybrid (Engram + OpenSpec)
+
+change_name: sistema-reservas
+status: spec_completed
+created_at: 2025-03-11T20:51:00Z
+updated_at: 2026-03-11T00:00:00Z
+
+# Dependency Graph State
+artifacts:
+  explore:
+    status: completed
+    file: artifacts/explore.md
+    topic_key: sdd/sistema-reservas/explore
+    completed_at: 2025-03-11T20:51:00Z
+  
+  proposal:
+    status: completed
+    file: artifacts/proposal.md
+    topic_key: sdd/sistema-reservas/proposal
+    completed_at: 2025-03-11T20:52:00Z
+  
+  spec:
+    status: completed
+    file: artifacts/spec.md
+    topic_key: sdd/sistema-reservas/spec
+    completed_at: 2026-03-11T00:00:00Z
+  
+  design:
+    status: pending
+    file: artifacts/design.md
+    topic_key: sdd/sistema-reservas/design
+  
+  tasks:
+    status: pending
+    file: artifacts/tasks.md
+    topic_key: sdd/sistema-reservas/tasks
+  
+  apply-progress:
+    status: pending
+    file: artifacts/apply-progress.md
+    topic_key: sdd/sistema-reservas/apply-progress
+  
+  verify-report:
+    status: pending
+    file: artifacts/verify-report.md
+    topic_key: sdd/sistema-reservas/verify-report
+  
+  archive-report:
+    status: pending
+    file: artifacts/archive-report.md
+    topic_key: sdd/sistema-reservas/archive-report
+
+# Project Configuration
+project:
+  type: sistema-reservas-citas
+  stack:
+    frontend: Next.js 14 + Tailwind + FullCalendar + Zustand
+    backend: Node.js + Express + Prisma + PostgreSQL
+    auth: JWT + Refresh Tokens
+    payments: Stripe
+    notifications: Resend (email) + Twilio (SMS)
+  scope:
+    mvp: Auth + CRUD Citas + Calendario + Email
+    v1: MVP + Pagos Stripe + Panel Admin
+    v2: Reseñas + Reportes Analytics + Multi-empleado
+  purpose: aprendizaje-produccion
+
+# Next Recommended Action
+next_recommended:
+  phase: design
+  command: /sdd-design
+  description: Crear diseño técnico detallado (arquitectura, diagramas, estructura de carpetas)
+
+# Risks Identified
+risks:
+  - name: Timezones mal manejados
+    severity: high
+    probability: high
+    mitigation: Estándar UTC + timezone por usuario
+  
+  - name: Double booking
+    severity: high
+    probability: medium
+    mitigation: Unique constraints + transacciones
+  
+  - name: Webhooks fallidos
+    severity: high
+    probability: medium
+    mitigation: Idempotencia + retry queue
+  
+  - name: Performance calendario
+    severity: medium
+    probability: medium
+    mitigation: Virtualización + paginación
+  
+  - name: Security vulnerabilities
+    severity: high
+    probability: low
+    mitigation: Middlewares de seguridad + audits

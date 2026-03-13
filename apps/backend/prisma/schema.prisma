@@ -1,0 +1,312 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Usuario {
+  id           String     @id @default(uuid())
+  nombre       String
+  email        String     @unique
+  passwordHash String
+  telefono     String?
+  rol          Rol        @default(CLIENTE)
+  activo       Boolean    @default(true)
+  lastLoginAt  DateTime?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  citasCliente     Cita[]           @relation("ClienteCitas")
+  refreshTokens    RefreshToken[]
+  resenas          Resena[]
+  cuponesUsados    CuponUso[]
+  notificaciones   Notificacion[]
+  waitlist         Waitlist[]
+
+  empleadoPerfil   Empleado?
+
+  @@index([email])
+  @@index([rol])
+  @@index([activo])
+}
+
+enum Rol {
+  CLIENTE
+  EMPLEADO
+  ADMIN
+}
+
+model RefreshToken {
+  id        String   @id @default(uuid())
+  token     String   @unique
+  usuarioId String
+  expiresAt DateTime
+  revoked   Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  usuario Usuario @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+
+  @@index([token])
+  @@index([usuarioId])
+  @@index([expiresAt])
+}
+
+model Servicio {
+  id          String   @id @default(uuid())
+  nombre      String   @unique
+  descripcion String?
+  duracion    Int
+  precio      Decimal  @db.Decimal(10, 2)
+  categoria   String?
+  imagenUrl   String?
+  activo      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  citas     Cita[]
+  empleados EmpleadoServicio[]
+
+  @@index([activo])
+  @@index([categoria])
+}
+
+model Empleado {
+  id             String   @id @default(uuid())
+  usuarioId      String   @unique
+  nombre         String
+  email          String   @unique
+  telefono       String?
+  activo         Boolean  @default(true)
+  horarioLaboral Json
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  usuario        Usuario          @relation(fields: [usuarioId], references: [id])
+  servicios      EmpleadoServicio[]
+  citas          Cita[]           @relation("EmpleadoCitas")
+  disponibilidad Disponibilidad[]
+  resenas        Resena[]
+
+  @@index([activo])
+  @@index([email])
+}
+
+model EmpleadoServicio {
+  empleadoId String
+  servicioId String
+  createdAt  DateTime @default(now())
+
+  empleado Empleado @relation(fields: [empleadoId], references: [id], onDelete: Cascade)
+  servicio Servicio @relation(fields: [servicioId], references: [id], onDelete: Cascade)
+
+  @@id([empleadoId, servicioId])
+  @@index([empleadoId])
+  @@index([servicioId])
+}
+
+model Disponibilidad {
+  id         String             @id @default(uuid())
+  empleadoId String
+  fecha      DateTime           @db.Date
+  tipo       TipoDisponibilidad
+  inicio     String?
+  fin        String?
+  motivo     String?
+  createdAt  DateTime           @default(now())
+
+  empleado Empleado @relation(fields: [empleadoId], references: [id], onDelete: Cascade)
+
+  @@index([empleadoId, fecha])
+}
+
+enum TipoDisponibilidad {
+  LABORAL
+  VACACIONES
+  FERIADO
+  BLOQUEADO
+}
+
+model Cita {
+  id            String     @id @default(uuid())
+  clienteId     String
+  empleadoId    String
+  servicioId    String
+  fechaInicio   DateTime
+  fechaFin      DateTime
+  estado        EstadoCita @default(CONFIRMADA)
+  notas         String?
+  paymentIntent String?    @unique
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+
+  cliente     Usuario      @relation("ClienteCitas", fields: [clienteId], references: [id])
+  empleado    Empleado     @relation("EmpleadoCitas", fields: [empleadoId], references: [id])
+  servicio    Servicio     @relation(fields: [servicioId], references: [id])
+  pago        Pago?
+  resena      Resena?
+  waitlist    Waitlist[]
+  cuponesUsos CuponUso[]
+  notificaciones Notificacion[]
+
+  @@index([clienteId])
+  @@index([empleadoId])
+  @@index([fechaInicio])
+  @@index([estado])
+  @@unique([empleadoId, fechaInicio])
+}
+
+enum EstadoCita {
+  CONFIRMADA
+  PAGADA
+  COMPLETADA
+  CANCELADA
+  REEMBOLSADA
+  NO_SHOW
+}
+
+model Pago {
+  id                    String   @id @default(uuid())
+  citaId                String   @unique
+  stripePaymentIntentId String   @unique
+  monto                 Decimal  @db.Decimal(10, 2)
+  moneda                String   @default("usd")
+  estado                EstadoPago
+  stripeWebhookData     Json?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  cita Cita @relation(fields: [citaId], references: [id])
+
+  @@index([stripePaymentIntentId])
+  @@index([estado])
+}
+
+enum EstadoPago {
+  PENDIENTE
+  EXITOSO
+  FALLIDO
+  REEMBOLSADO
+}
+
+model Resena {
+  id           String   @id @default(uuid())
+  citaId       String   @unique
+  clienteId    String
+  empleadoId   String?
+  calificacion Int
+  comentario   String?
+  anonimo      Boolean  @default(false)
+  aprobado     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+
+  cita     Cita      @relation(fields: [citaId], references: [id])
+  cliente  Usuario   @relation(fields: [clienteId], references: [id])
+  empleado Empleado? @relation(fields: [empleadoId], references: [id])
+
+  @@index([empleadoId])
+  @@index([calificacion])
+}
+
+model Waitlist {
+  id         String   @id @default(uuid())
+  citaId     String
+  clienteId  String
+  notificado Boolean  @default(false)
+  expiraAt   DateTime?
+  createdAt  DateTime @default(now())
+
+  cita    Cita    @relation(fields: [citaId], references: [id], onDelete: Cascade)
+  cliente Usuario @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+
+  @@index([citaId])
+  @@index([clienteId])
+  @@unique([citaId, clienteId])
+}
+
+model Cupon {
+  id              String          @id @default(uuid())
+  codigo          String          @unique
+  descripcion     String?
+  tipoDescuento   TipoDescuento
+  valor           Decimal         @db.Decimal(10, 2)
+  fechaInicio     DateTime
+  fechaFin        DateTime
+  usosMaximos     Int?
+  usosActuales    Int             @default(0)
+  usosPorUsuario  Int             @default(1)
+  activo          Boolean         @default(true)
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  usos CuponUso[]
+
+  @@index([codigo])
+  @@index([activo])
+}
+
+enum TipoDescuento {
+  PORCENTAJE
+  FIJO
+}
+
+model CuponUso {
+  id        String   @id @default(uuid())
+  cuponId   String
+  clienteId String
+  citaId    String?
+  usadoAt   DateTime @default(now())
+
+  cupon   Cupon   @relation(fields: [cuponId], references: [id])
+  cliente Usuario @relation(fields: [clienteId], references: [id])
+  cita    Cita?   @relation(fields: [citaId], references: [id], onDelete: SetNull)
+
+  @@index([cuponId])
+  @@index([clienteId])
+  @@unique([cuponId, clienteId])
+}
+
+model Configuracion {
+  id          String   @id @default(uuid())
+  clave       String   @unique
+  valor       Json
+  descripcion String?
+  updatedAt   DateTime @updatedAt
+
+  @@index([clave])
+}
+
+model Notificacion {
+  id           String             @id @default(uuid())
+  usuarioId    String
+  tipo         TipoNotificacion
+  titulo       String
+  mensaje      String             @db.Text
+  leido        Boolean            @default(false)
+  emailEnviado Boolean            @default(false)
+  smsEnviado   Boolean            @default(false)
+  citaId       String?
+  metadata     Json?
+  enviadoAt    DateTime?
+  leidoAt      DateTime?
+  createdAt    DateTime           @default(now())
+
+  usuario Usuario @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  cita    Cita?   @relation(fields: [citaId], references: [id], onDelete: SetNull)
+
+  @@index([usuarioId])
+  @@index([leido])
+  @@index([createdAt])
+  @@index([usuarioId, leido])
+}
+
+enum TipoNotificacion {
+  CITA_CONFIRMADA
+  CITA_RECORDATORIO
+  CITA_CANCELADA
+  CITA_REAGENDADA
+  PROMO
+  SISTEMA
+}

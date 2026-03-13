@@ -1,0 +1,2022 @@
+# 🏗️ DISEÑO TÉCNICO: Sistema de Reservas de Citas de Servicios
+
+**Change**: sistema-reservas  
+**Phase**: Design  
+**Status**: ✅ Completed  
+**Date**: 2026-03-11  
+**Mode**: hybrid (Engram + OpenSpec)  
+**Based on**: proposal.md v1.0, spec.md v1.0
+
+---
+
+## 1. Arquitectura Overview
+
+### 1.1 Arquitectura de Alto Nivel
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                           CLIENTES                                       │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐                  │
+│  │   Desktop    │  │    Mobile    │  │   Tablet     │                  │
+│  │   Browser    │  │   Browser    │  │   Browser    │                  │
+│  └──────┬───────┘  └──────┬───────┘  └──────┬───────┘                  │
+│         │                 │                  │                           │
+│         └─────────────────┴──────────────────┘                           │
+│                           │                                               │
+│                    HTTPS / REST API                                       │
+└───────────────────────────┼───────────────────────────────────────────────┘
+                            │
+┌───────────────────────────▼───────────────────────────────────────────────┐
+│                      CAPA DE PRESENTACIÓN                                  │
+│                    Frontend - Next.js 14                                   │
+│                      Deploy: Vercel CDN                                    │
+│  ┌─────────────────────────────────────────────────────────────────────┐ │
+│  │  App Router (Server Components + Client Components)                  │ │
+│  │  ├── (auth) → Login, Registro, Recuperación                         │ │
+│  │  ├── (dashboard) → Admin, Empleado, Cliente                         │ │
+│  │  ├── booking → Flujo de reservas                                    │ │
+│  │  ├── services → Catálogo público                                    │ │
+│  │  └── api → BFF (Backend for Frontend)                               │ │
+│  └─────────────────────────────────────────────────────────────────────┘ │
+│  ┌─────────────────────────────────────────────────────────────────────┐ │
+│  │  Componentes Clave                                                   │ │
+│  │  ├── Calendar → FullCalendar v6 (virtualizado)                      │ │
+│  │  ├── BookingWizard → React Hook Form + Zod (5 pasos)                │ │
+│  │  ├── PaymentForm → Stripe Elements (PCI compliant)                  │ │
+│  │  ├── DataTable → TanStack Table (pagination, filters, sorting)      │ │
+│  │  └── Notifications → Toast + Email/SMS integration                  │ │
+│  └─────────────────────────────────────────────────────────────────────┘ │
+└───────────────────────────┬───────────────────────────────────────────────┘
+                            │
+                    HTTPS / REST API
+                            │
+┌───────────────────────────▼───────────────────────────────────────────────┐
+│                       CAPA DE APLICACIÓN                                   │
+│                     Backend - Express.js                                   │
+│                    Deploy: Railway (Docker)                                │
+│  ┌─────────────────────────────────────────────────────────────────────┐ │
+│  │  Middleware Stack (orden crítico)                                    │ │
+│  │  1. helmet → Security headers (CSP, X-Frame-Options, etc.)          │ │
+│  │  2. cors → Whitelist de orígenes permitidos                         │ │
+│  │  3. rateLimit → 100 req/15min por IP                                │ │
+│  │  4. express-validator / Zod → Validación de schemas                 │ │
+│  │  5. compression → Gzip responses                                    │ │
+│  │  6. JWT auth → Verificación de tokens                               │ │
+│  │  7. requestLogger → Logging estructurado                            │ │
+│  └─────────────────────────────────────────────────────────────────────┘ │
+│  ┌─────────────────────────────────────────────────────────────────────┐ │
+│  │  Capa de Controladores (HTTP handling)                               │ │
+│  │  ├── AuthController → registro, login, refresh, logout              │ │
+│  │  ├── AppointmentController → CRUD citas, disponibilidad             │ │
+│  │  ├── ServiceController → CRUD servicios                             │ │
+│  │  ├── EmployeeController → CRUD empleados, horarios                  │ │
+│  │  ├── PaymentController → PaymentIntents, webhooks                   │ │
+│  │  ├── AdminController → dashboard, usuarios, config                  │ │
+│  │  ├── ReviewController → reseñas, calificaciones                     │ │
+│  │  └── WaitlistController → lista de espera                           │ │
+│  └─────────────────────────────────────────────────────────────────────┘ │
+│  ┌─────────────────────────────────────────────────────────────────────┐ │
+│  │  Capa de Servicios (Business Logic Pura)                             │ │
+│  │  ├── AuthService → hashing, JWT, validación credenciales            │ │
+│  │  ├── AppointmentService → creación, validación conflictos           │ │
+│  │  ├── AvailabilityService → cálculo slots disponibles                │ │
+│  │  ├── PaymentService → Stripe integration, reembolsos                │ │
+│  │  ├── NotificationService → email, SMS, templates                    │ │
+│  │  ├── WaitlistService → gestión lista de espera                      │ │
+│  │  └── AnalyticsService → métricas, reportes                          │ │
+│  └─────────────────────────────────────────────────────────────────────┘ │
+│  ┌─────────────────────────────────────────────────────────────────────┐ │
+│  │  Capa de Repositorios (Acceso a Datos - Prisma)                      │ │
+│  │  ├── UserRepository → consultas de usuarios                         │ │
+│  │  ├── AppointmentRepository → consultas de citas                     │ │
+│  │  ├── ServiceRepository → consultas de servicios                     │ │
+│  │  ├── EmployeeRepository → consultas de empleados                    │ │
+│  │  └── PaymentRepository → consultas de pagos                         │ │
+│  └─────────────────────────────────────────────────────────────────────┘ │
+│  ┌─────────────────────────────────────────────────────────────────────┐ │
+│  │  Event Bus (EventEmitter para desacoplamiento)                       │ │
+│  │  ├── cita.creada → envía email confirmación                         │ │
+│  │  ├── cita.cancelada → libera slot, notifica waitlist                │ │
+│  │  ├── pago.confirmado → actualiza cita, envía recibo                 │ │
+│  │  └── recordatorio.24h → envía recordatorio                          │ │
+│  └─────────────────────────────────────────────────────────────────────┘ │
+└───────────────────────────┬───────────────────────────────────────────────┘
+                            │
+┌───────────────────────────▼───────────────────────────────────────────────┐
+│                        CAPA DE DATOS                                       │
+│  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────────────┐  │
+│  │   PostgreSQL    │  │     Redis       │  │   File Storage (S3)     │  │
+│  │   (Railway)     │  │   (Railway)     │  │   (Cloudflare R2)       │  │
+│  │                 │  │                 │  │                         │  │
+│  │  - Usuarios     │  │  - Sessions     │  │  - Logos                │  │
+│  │  - Citas        │  │  - Rate Limit   │  │  - Fotos servicios      │  │
+│  │  - Servicios    │  │  - Cache Q.     │  │  - Documentos           │  │
+│  │  - Empleados    │  │  - Disponibilidad│ │                         │  │
+│  │  - Pagos        │  │  (TTL: 1 min)   │  │                         │  │
+│  │  - Reseñas      │  │                 │  │                         │  │
+│  │  - Waitlist     │  │                 │  │                         │  │
+│  └─────────────────┘  └─────────────────┘  └─────────────────────────┘  │
+└───────────────────────────────────────────────────────────────────────────┘
+
+┌───────────────────────────────────────────────────────────────────────────┐
+│                     SERVICIOS EXTERNOS                                     │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐ │
+│  │    Stripe    │  │    Resend    │  │    Twilio    │  │    Sentry    │ │
+│  │   (Pagos)    │  │   (Email)    │  │    (SMS)     │  │  (Error)     │ │
+│  └──────────────┘  └──────────────┘  └──────────────┘  └──────────────┘ │
+└───────────────────────────────────────────────────────────────────────────┘
+```
+
+### 1.2 Principios de Diseño
+
+| Principio | Aplicación en este Proyecto |
+|-----------|----------------------------|
+| **Separation of Concerns** | Controladores (HTTP) → Servicios (negocio) → Repositorios (datos) |
+| **Single Responsibility** | Cada servicio hace una cosa y la hace bien |
+| **Dependency Injection** | Inyección de repositorios en servicios para testabilidad |
+| **Fail Fast** | Validación temprana en controladores y servicios |
+| **Circuit Breaker** | Reintentos con backoff exponencial para APIs externas |
+| **Idempotency** | Webhooks y operaciones críticas usan idempotency keys |
+| **Observability** | Logging estructurado, métricas, tracing distribuido |
+
+---
+
+## 2. Diagramas de Componentes
+
+### 2.1 Módulo de Autenticación
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    Auth Flow                                      │
+└─────────────────────────────────────────────────────────────────┘
+
+┌──────────┐         ┌──────────────┐         ┌──────────────┐
+│  Cliente │         │  Frontend    │         │   Backend    │
+│ (Browser)│         │  (Next.js)   │         │  (Express)   │
+└────┬─────┘         └──────┬───────┘         └──────┬───────┘
+     │                      │                        │
+     │  1. POST /login      │                        │
+     ├─────────────────────►│                        │
+     │  {email, password}   │                        │
+     │                      │                        │
+     │                      │  2. Validar Zod        │
+     │                      │  (schema login)        │
+     │                      ├───────────────────────►│
+     │                      │                        │
+     │                      │                        │ 3. Buscar usuario
+     │                      │                        │    (Prisma)
+     │                      │                        │ 4. Verificar password
+     │                      │                        │    (bcrypt.compare)
+     │                      │                        │ 5. Generar JWT tokens
+     │                      │                        │    (jsonwebtoken)
+     │                      │                        │
+     │                      │  6. Response           │
+     │                      │◄───────────────────────┤
+     │                      │  {accessToken,         │
+     │                      │   refreshToken, user}  │
+     │                      │                        │
+     │  7. Store tokens     │                        │
+     │◄─────────────────────┤                        │
+     │  (localStorage +     │                        │
+     │   httpOnly cookie)   │                        │
+     │                      │                        │
+     │  8. Redirect         │                        │
+     │  to /dashboard       │                        │
+     │                      │                        │
+
+┌─────────────────────────────────────────────────────────────────┐
+│  Token Refresh Flow (automático)                                │
+└─────────────────────────────────────────────────────────────────┘
+
+┌──────────┐         ┌──────────────┐         ┌──────────────┐
+│  Cliente │         │  Frontend    │         │   Backend    │
+│ (Browser)│         │  (Next.js)   │         │  (Express)   │
+└────┬─────┘         └──────┬───────┘         └──────┬───────┘
+     │                      │                        │
+     │  Access Token        │                        │
+     │  Expira (15 min)     │                        │
+     │                      │                        │
+     │  1. Interceptor      │                        │
+     │  detecta 401         │                        │
+     │  o token próximo     │                        │
+     │  a expirar           │                        │
+     │                      │                        │
+     │  2. POST /refresh    │                        │
+     ├─────────────────────►│                        │
+     │  {refreshToken}      │                        │
+     │                      │                        │
+     │                      │  3. Validar refreshToken
+     │                      │     (firma + expiración)
+     │                      ├───────────────────────►│
+     │                      │                        │
+     │                      │                        │ 4. Verificar no revocado
+     │                      │                        │    (DB lookup)
+     │                      │                        │ 5. Revocar token anterior
+     │                      │                        │ 6. Generar nuevos tokens
+     │                      │                        │
+     │                      │  7. Nuevos tokens      │
+     │                      │◄───────────────────────┤
+     │                      │                        │
+     │  8. Actualizar       │                        │
+     │  tokens en storage   │                        │
+     │◄─────────────────────┤                        │
+     │                      │                        │
+     │  9. Retry request    │                        │
+     │  original con nuevo  │                        │
+     │  accessToken         │                        │
+     │                      │                        │
+```
+
+### 2.2 Módulo de Reservas (Booking Flow)
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    Booking Flow (5 pasos)                        │
+└─────────────────────────────────────────────────────────────────┘
+
+┌──────────┐         ┌──────────────┐         ┌──────────────┐
+│  Cliente │         │  Frontend    │         │   Backend    │
+│ (Browser)│         │  (Next.js)   │         │  (Express)   │
+└────┬─────┘         └──────┬───────┘         └──────┬───────┘
+     │                      │                        │
+     │  PASO 1: Selección de Servicio               │
+     │────────────────────────────────────────────►│
+     │  GET /api/services                         │
+     │◄────────────────────────────────────────────┤
+     │  [Lista de servicios activos]                │
+     │                      │                        │
+     │  Usuario selecciona servicio                 │
+     │                      │                        │
+     │  PASO 2: Selección de Empleado               │
+     │────────────────────────────────────────────►│
+     │  GET /api/employees?servicioId=xxx         │
+     │◄────────────────────────────────────────────┤
+     │  [Empleados que realizan ese servicio]       │
+     │                      │                        │
+     │  Usuario selecciona empleado                 │
+     │                      │                        │
+     │  PASO 3: Selección de Fecha/Hora             │
+     │────────────────────────────────────────────►│
+     │  GET /api/employees/:id/disponibilidad     │
+     │     ?fecha=2025-03-15                       │
+     │◄────────────────────────────────────────────┤
+     │  [Slots disponibles del día]                 │
+     │                      │                        │
+     │  Algoritmo de disponibilidad:                │
+     │  1. Obtener horario laboral                  │
+     │  2. Obtener citas existentes                 │
+     │  3. Obtener bloqueos/excepciones             │
+     │  4. Calcular: slots = horario - citas        │
+     │  5. Filtrar slots < 2h (anticipación)        │
+     │  6. Cache Redis (TTL: 1 min)                 │
+     │                      │                        │
+     │  Usuario selecciona slot                     │
+     │                      │                        │
+     │  PASO 4: Confirmación de Datos               │
+     │  (Resumen de cita + datos personales)        │
+     │                      │                        │
+     │  PASO 5: Pago (si aplica)                    │
+     │────────────────────────────────────────────►│
+     │  POST /api/payments/create-intent          │
+     │  {citaId: "appt_xxx"}                       │
+     │◄────────────────────────────────────────────┤
+     │  {clientSecret: "pi_xxx_secret_yyy"}         │
+     │                      │                        │
+     │  Stripe Elements Form                        │
+     │  (PCI compliant - datos no tocan server)     │
+     │                      │                        │
+     │  Confirmar pago con Stripe.js                │
+     │                      │                        │
+     │  Stripe procesa pago                         │
+     │                      │                        │
+     │  Stripe webhook → Backend                    │
+     │  payment_intent.succeeded                    │
+     │                      │                        │
+     │  Backend actualiza cita a PAGADA             │
+     │  Envía email confirmación                    │
+     │                      │                        │
+     │  Redirigir a /citas/:id/confirmacion         │
+     │◄────────────────────────────────────────────┤
+     │                      │                        │
+
+┌─────────────────────────────────────────────────────────────────┐
+│  Double Booking Prevention (crítico)                            │
+└─────────────────────────────────────────────────────────────────┘
+
+Transacción atómica en creación de cita:
+
+BEGIN TRANSACTION;
+
+-- 1. Locking optimista con SELECT FOR UPDATE
+SELECT * FROM "Cita"
+WHERE "empleadoId" = $1
+  AND "fechaInicio" = $2
+  FOR UPDATE;
+
+-- 2. Verificar que no existe conflicto
+-- (unique constraint: empleadoId + fechaInicio)
+
+-- 3. Insertar cita
+INSERT INTO "Cita" (...) VALUES (...);
+
+-- 4. Commit
+COMMIT;
+
+Si hay conflicto → ROLLBACK → Error 409: HORARIO_NO_DISPONIBLE
+```
+
+### 2.3 Módulo de Pagos (Stripe Integration)
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    Payment Flow                                  │
+└─────────────────────────────────────────────────────────────────┘
+
+┌──────────┐    ┌──────────┐    ┌──────────┐    ┌──────────┐
+│  Cliente │    │ Frontend │    │ Backend  │    │  Stripe  │
+└────┬─────┘    └────┬─────┘    └────┬─────┘    └────┬─────┘
+     │               │               │               │
+     │  1. Click     │               │               │
+     │  "Pagar"      │               │               │
+     │               │               │               │
+     │               │  2. POST      │               │
+     │               │  /create-intent
+     ├──────────────►│               │               │
+     │               │  {citaId}     │               │
+     │               │               │               │
+     │               │               │  3. Crear     │
+     │               │               │  PaymentIntent
+     │               ├──────────────►│               │
+     │               │               │               │
+     │               │               │  4. clientSecret
+     │               │◄──────────────┤               │
+     │               │               │               │
+     │               │  5. Retornar  │               │
+     │               │  clientSecret │               │
+     │◄──────────────┤               │               │
+     │               │               │               │
+     │  6. Mostrar   │               │               │
+     │  Stripe       │               │               │
+     │  Elements     │               │               │
+     │  (formulario  │               │               │
+     │   PCI)        │               │               │
+     │               │               │               │
+     │  7. Ingresar  │               │               │
+     │  datos tarjeta│               │               │
+     │               │               │               │
+     │  8. Confirmar │               │               │
+     │  pago         │               │               │
+     ├──────────────────────────────►│               │
+     │               │               │               │
+     │               │               │  9. Procesar  │
+     │               │               │  transacción  │
+     │               │               │               │
+     │               │               │  10. Resultado
+     │◄──────────────────────────────┤               │
+     │               │               │               │
+     │  11. Webhook (asíncrono)      │               │
+     │  payment_intent.succeeded     │               │
+     │               │◄──────────────────────────────┤
+     │               │               │               │
+     │               │  12. Verificar firma          │
+     │               │  (Stripe-Signature header)    │
+     │               │  13. Verificar idempotencia   │
+     │               │  (stripeIdempotencyKey)       │
+     │               │               │               │
+     │               │  14. Actualizar cita a PAGADA │
+     │               │  15. Enviar email recibo      │
+     │               │               │               │
+     │               │  16. 200 OK   │               │
+     │               ├──────────────►│               │
+     │               │               │               │
+
+┌─────────────────────────────────────────────────────────────────┐
+│  Webhook Security (crítico)                                     │
+└─────────────────────────────────────────────────────────────────┘
+
+1. Verificar firma:
+   const sig = request.headers['stripe-signature'];
+   const event = stripe.webhooks.constructEvent(
+     rawBody, sig, process.env.STRIPE_WEBHOOK_SECRET
+   );
+   // Lanza error si firma inválida → 400 Bad Request
+
+2. Idempotencia:
+   const eventId = event.id;
+   const existing = await prisma.webhookLog.findUnique({
+     where: { stripeEventId: eventId }
+   });
+   if (existing) {
+     return res.status(200).json({ received: true });
+   }
+   // Procesar evento y guardar log
+
+3. Manejo de errores:
+   - Error de firma → 400 (Stripe NO reintenta)
+   - Error de procesamiento → 500 (Stripe SÍ reintenta)
+   - Evento desconocido → 200 (ignorar, loguear)
+```
+
+---
+
+## 3. Data Flow Diagrams
+
+### 3.1 Creación de Cita
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    Create Appointment Flow                       │
+└─────────────────────────────────────────────────────────────────┘
+
+     ┌─────────┐
+     │ Cliente │
+     └────┬────┘
+          │
+          │ 1. Solicitud de reserva
+          │ POST /api/appointments
+          │ {servicioId, empleadoId, fechaInicio, notas}
+          ▼
+┌─────────────────┐
+│   Controller    │
+│ (Auth + Zod)    │
+└────────┬────────┘
+         │
+         │ 2. Validar:
+         │    - Usuario autenticado
+         │    - Schema válido (Zod)
+         │    - Fecha > ahora
+         │    - Fecha > 2h (anticipación mínima)
+         ▼
+┌─────────────────┐
+│    Service      │
+│ (Appointment)   │
+└────────┬────────┘
+         │
+         │ 3. Validar disponibilidad:
+         │    - Servicio existe y activo
+         │    - Empleado existe y activo
+         │    - Empleado realiza ese servicio
+         │    - Horario dentro de horario laboral
+         │    - Sin conflictos (double booking)
+         ▼
+┌─────────────────┐
+│   Repository    │
+│    (Prisma)     │
+└────────┬────────┘
+         │
+         │ 4. Transacción atómica:
+         │    BEGIN TRANSACTION
+         │    SELECT ... FOR UPDATE (lock)
+         │    INSERT INTO Cita
+         │    COMMIT
+         ▼
+┌─────────────────┐
+│     Event       │
+│    (Emitter)    │
+└────────┬────────┘
+         │
+         │ 5. Emitir evento:
+         │    emit('cita.creada', {citaId})
+         │
+         ├─────────────────────┬─────────────────────┐
+         │                     │                     │
+         ▼                     ▼                     ▼
+┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐
+│  Notification   │  │     Cache       │  │      Log        │
+│    Service      │  │    Service      │  │    Service      │
+└────────┬────────┘  └────────┬────────┘  └────────┬────────┘
+         │                    │                     │
+         │ 6. Email           │ 7. Invalidar        │ 8. Log
+         │ confirmación       │ cache Redis         │ auditoría
+         │ (Resend)           │ disponibilidad      │
+         │                    │                     │
+         ▼                    ▼                     ▼
+┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐
+│     Resend      │  │      Redis      │  │   PostgreSQL    │
+│   (Email API)   │  │    (Cache)      │  │   (Audit Log)   │
+└─────────────────┘  └─────────────────┘  └─────────────────┘
+
+Respuesta: 201 Created
+{
+  "data": {
+    "cita": {
+      "id": "appt_xxx",
+      "estado": "CONFIRMADA",
+      "fechaInicio": "2025-03-15T10:00:00Z"
+    }
+  }
+}
+```
+
+### 3.2 Cancelación de Cita
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    Cancel Appointment Flow                       │
+└─────────────────────────────────────────────────────────────────┘
+
+     ┌─────────┐
+     │ Cliente │
+     │  (o     │
+     │Empleado)│
+     └────┬────┘
+          │
+          │ 1. Solicitud de cancelación
+          │ PATCH /api/appointments/:id/cancelar
+          ▼
+┌─────────────────┐
+│   Controller    │
+│ (Auth + Zod)    │
+└────────┬────────┘
+         │
+         │ 2. Validar:
+         │    - Usuario es propietario, empleado, o admin
+         │    - Cita existe y está CONFIRMADA o PAGADA
+         ▼
+┌─────────────────┐
+│    Service      │
+│ (Appointment)   │
+└────────┬────────┘
+         │
+         │ 3. Validar política de cancelación:
+         │    - Calcular horas hasta cita
+         │    - Si < 24h → aplicar 50% penalidad
+         │    - Si < 2h → aplicar 100% penalidad
+         │    - Obtener configuración del negocio
+         ▼
+┌─────────────────┐
+│   Repository    │
+│    (Prisma)     │
+└────────┬────────┘
+         │
+         │ 4. Transacción:
+         │    UPDATE Cita SET estado = CANCELADA
+         │    Liberar slot (automático por estado)
+         │    Si PAGADA → crear reembolso (Stripe)
+         ▼
+┌─────────────────┐
+│     Event       │
+│    (Emitter)    │
+└────────┬────────┘
+         │
+         │ 5. Emitir evento:
+         │    emit('cita.cancelada', {citaId})
+         │
+         ├─────────────────────┬─────────────────────┐
+         │                     │                     │
+         ▼                     ▼                     ▼
+┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐
+│  Notification   │  │   Waitlist      │  │      Log        │
+│    Service      │  │    Service      │  │    Service      │
+└────────┬────────┘  └────────┬────────┘  └────────┬────────┘
+         │                    │                     │
+         │ 6. Email           │ 7. Notificar        │ 8. Log
+         │ cancelación        │ primer usuario      │ auditoría
+         │ (Resend)           │ en waitlist         │
+         │                    │ (email: slot libre) │
+         │                    │                     │
+         ▼                    ▼                     ▼
+┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐
+│     Resend      │  │   PostgreSQL    │  │   PostgreSQL    │
+│   (Email API)   │  │   (Waitlist)    │  │   (Audit Log)   │
+└─────────────────┘  └─────────────────┘  └─────────────────┘
+
+Respuesta: 200 OK
+{
+  "data": {
+    "cita": {
+      "id": "appt_xxx",
+      "estado": "CANCELADA"
+    },
+    "reembolso": {
+      "aplica": true,
+      "monto": 25.00,
+      "porcentaje": 100
+    }
+  }
+}
+```
+
+---
+
+## 4. Technology Decisions
+
+### 4.1 Stack Tecnológico Detallado
+
+| Capa | Tecnología | Versión | Por Qué Esta Elección |
+|------|-----------|---------|----------------------|
+| **Frontend Framework** | Next.js | 14.x | SSR, App Router, optimizado para Vercel, server components |
+| **Language** | TypeScript | 5.x | Type safety, mejor DX, autocompletado, refactorización segura |
+| **Styling** | Tailwind CSS | 3.x | Utility-first, rápido desarrollo, bundle pequeño, dark mode |
+| **UI Components** | shadcn/ui | latest | Accesible (WAI-ARIA), personalizable, sin vendor lock-in, Radix UI |
+| **Calendar** | FullCalendar | 6.x | Feature-complete, buena documentación, mobile responsive, eventos drag-drop |
+| **State Management** | Zustand | 4.x | Minimalista, sin boilerplate, devtools, persistencia middleware |
+| **Forms** | React Hook Form | 7.x | Performante (menos re-renders), fácil integración con Zod |
+| **Validation** | Zod | 3.x | Type-safe, schema validation, infer types, error messages |
+| **HTTP Client** | Axios | 1.x | Interceptors, cancelación, transforms, maduro |
+| **Backend Runtime** | Node.js | 20.x LTS | Estabilidad, ecosistema npm, non-blocking I/O |
+| **Backend Framework** | Express | 4.x | Maduro, flexible, ampliamente adoptado, middleware ecosystem |
+| **ORM** | Prisma | 5.x | Type-safe, migraciones automáticas, DX excelente, auto-complete |
+| **Database** | PostgreSQL | 15+ | Robusto, ACID, soporte JSONB, índices avanzados, confiable |
+| **Cache** | Redis | 7.x | Sessions, rate limiting, cache consultas, pub/sub para eventos |
+| **Auth** | jsonwebtoken + bcrypt | - | JWT stateless (escalable), hashing seguro (10 rounds) |
+| **Email** | Resend | - | API moderna, deliverability alto, templates, analytics |
+| **SMS** | Twilio | - | Líder industria, cobertura global, reliable, pricing claro |
+| **Pagos** | Stripe | - | DX mejor, documentación excelente, webhooks robustos, PCI compliant |
+| **Testing Unit** | Vitest | 1.x | Rápido, compatible con Jest, coverage, watch mode |
+| **Testing E2E** | Playwright | 1.x | Cross-browser, mobile emulation, auto-wait, tracing |
+| **CI/CD** | GitHub Actions | - | Integrado con repo, gratuito para OSS, runners rápidos |
+| **Deploy FE** | Vercel | - | CDN global, preview deployments, analytics, serverless functions |
+| **Deploy BE** | Railway | - | Docker-based, auto-deploy desde GitHub, PostgreSQL incluido |
+| **Monitoring** | Sentry | - | Error tracking, performance monitoring, release tracking |
+| **Uptime** | UptimeRobot | - | Monitoreo 24/7, alertas email/SMS, free tier generoso |
+
+### 4.2 Decisiones Arquitectónicas Clave
+
+| Decisión | Opción Seleccionada | Alternativa Considerada | Justificación |
+|----------|-------------------|------------------------|---------------|
+| **Monorepo vs Polirepo** | Monorepo (Turborepo) | Polirepo | Compartir tipos TypeScript, scripts unificados, versionado coherente |
+| **App Router vs Pages** | App Router | Pages Router | Futuro de Next.js, server components, streaming, layouts anidados |
+| **Server Actions vs API** | API REST tradicional | Server Actions | Mayor control, testing más fácil, documentación OpenAPI, separación clara |
+| **JWT vs Sesiones** | JWT stateless | Express-session | Escalabilidad horizontal (sin sticky sessions), mobile-friendly |
+| **Prisma vs Drizzle** | Prisma | Drizzle ORM | Madurez, migraciones automáticas, tooling (Prisma Studio), type generation |
+| **PostgreSQL vs MySQL** | PostgreSQL | MySQL 8 | JSONB, tipos avanzados (arrays), ACID compliance, better para analytics |
+| **Zustand vs Redux** | Zustand | Redux Toolkit | Menos boilerplate, suficiente para scope, devtools, middleware |
+| **Resend vs SendGrid** | Resend | SendGrid | API moderna, mejor DX, pricing transparente, React email templates |
+| **Railway vs AWS** | Railway | AWS (EC2 + RDS) | Simplicity, menos overhead operacional, pricing predecible |
+| **Cloudflare R2 vs S3** | Cloudflare R2 | AWS S3 | Sin egress fees, más barato, compatible con S3 API |
+
+### 4.3 Patrones de Diseño Implementados
+
+| Patrón | Ubicación | Propósito |
+|--------|----------|-----------|
+| **Repository** | `backend/src/repositories/` | Abstraer acceso a datos, facilitar testing con mocks |
+| **Service Layer** | `backend/src/services/` | Lógica de negocio pura, independiente de HTTP |
+| **DTO** | `backend/src/dtos/` | Transferencia de datos entre capas, validación Zod |
+| **Middleware** | `backend/src/middleware/` | Cross-cutting concerns (auth, logging, error handling) |
+| **Factory** | `backend/src/factories/notifications/` | Creación de notificaciones (email, SMS) según tipo |
+| **Strategy** | `backend/src/strategies/payments/` | Diferentes pasarelas de pago (Stripe, PayPal futuro) |
+| **Observer** | `backend/src/events/` | Eventos post-reserva (cita.creada, cita.cancelada) |
+| **Circuit Breaker** | `backend/src/utils/circuitBreaker.ts` | Prevenir cascada de fallos en APIs externas |
+| **Dependency Injection** | `backend/src/container.ts` | Inyección de dependencias para testabilidad |
+
+---
+
+## 5. Directory Structure
+
+### 5.1 Estructura Completa del Proyecto
+
+```
+sistema-reservas/
+│
+├── .github/
+│   └── workflows/
+│       ├── ci.yml                 # CI: lint, test, build
+│       ├── deploy-frontend.yml    # Deploy a Vercel
+│       └── deploy-backend.yml     # Deploy a Railway
+│
+├── .vscode/
+│   ├── settings.json              # VS Code settings compartidos
+│   └── extensions.json            # Extensiones recomendadas
+│
+├── docs/
+│   ├── api/                       # Documentación OpenAPI
+│   │   └── openapi.yaml
+│   ├── architecture/              # Diagramas y decisiones
+│   │   ├── architecture-decisions.md
+│   │   └── diagrams/
+│   └── runbooks/                  # Procedimientos operacionales
+│       ├── deployment.md
+│       ├── rollback.md
+│       └── incident-response.md
+│
+├── frontend/                      # Next.js 14 App Router
+│   ├── app/
+│   │   ├── (auth)/               # Route group: autenticación
+│   │   │   ├── login/
+│   │   │   │   └── page.tsx
+│   │   │   ├── registro/
+│   │   │   │   └── page.tsx
+│   │   │   ├── recuperar-password/
+│   │   │   │   └── page.tsx
+│   │   │   └── layout.tsx        # Layout sin sidebar
+│   │   │
+│   │   ├── (dashboard)/          # Route group: áreas protegidas
+│   │   │   ├── admin/
+│   │   │   │   ├── page.tsx      # Dashboard admin
+│   │   │   │   ├── usuarios/
+│   │   │   │   ├── servicios/
+│   │   │   │   ├── empleados/
+│   │   │   │   ├── configuracion/
+│   │   │   │   └── analytics/
+│   │   │   │
+│   │   │   ├── employee/
+│   │   │   │   ├── page.tsx      # Dashboard empleado
+│   │   │   │   ├── calendario/
+│   │   │   │   └── citas/
+│   │   │   │
+│   │   │   ├── customer/
+│   │   │   │   ├── page.tsx      # Dashboard cliente
+│   │   │   │   ├── mis-citas/
+│   │   │   │   └── perfil/
+│   │   │   │
+│   │   │   └── layout.tsx        # Layout con sidebar + navbar
+│   │   │
+│   │   ├── booking/              # Flujo de reservas (público o auth)
+│   │   │   ├── page.tsx
+│   │   │   └── confirmacion/
+│   │   │       └── [id]/
+│   │   │           └── page.tsx
+│   │   │
+│   │   ├── services/             # Catálogo público de servicios
+│   │   │   └── page.tsx
+│   │   │
+│   │   ├── api/                  # BFF (Backend for Frontend)
+│   │   │   ├── auth/
+│   │   │   │   └── [...nextauth]/
+│   │   │   │       └── route.ts
+│   │   │   └── trpc/
+│   │   │       └── [trpc]/
+│   │   │           └── route.ts
+│   │   │
+│   │   ├── layout.tsx            # Root layout (html, body, providers)
+│   │   ├── page.tsx              # Landing page
+│   │   ├── globals.css           # Tailwind + custom styles
+│   │   └── providers.tsx         # Context providers (theme, auth, query)
+│   │
+│   ├── components/
+│   │   ├── ui/                   # Componentes base (shadcn/ui)
+│   │   │   ├── button.tsx
+│   │   │   ├── input.tsx
+│   │   │   ├── form.tsx
+│   │   │   ├── dialog.tsx
+│   │   │   ├── toast.tsx
+│   │   │   ├── table.tsx
+│   │   │   ├── calendar.tsx
+│   │   │   └── select.tsx
+│   │   │
+│   │   ├── calendar/             # Componentes de calendario
+│   │   │   ├── CalendarView.tsx
+│   │   │   ├── CalendarHeader.tsx
+│   │   │   ├── TimeSlotPicker.tsx
+│   │   │   └── AvailabilityGrid.tsx
+│   │   │
+│   │   ├── booking/              # Componentes de reservas
+│   │   │   ├── BookingWizard.tsx
+│   │   │   ├── ServiceSelector.tsx
+│   │   │   ├── EmployeeSelector.tsx
+│   │   │   ├── DateTimeSelector.tsx
+│   │   │   ├── ConfirmationStep.tsx
+│   │   │   └── PaymentStep.tsx
+│   │   │
+│   │   ├── dashboard/            # Componentes de dashboard
+│   │   │   ├── MetricsCards.tsx
+│   │   │   ├── RecentAppointments.tsx
+│   │   │   ├── RevenueChart.tsx
+│   │   │   └── OccupancyChart.tsx
+│   │   │
+│   │   ├── layout/               # Componentes de layout
+│   │   │   ├── Sidebar.tsx
+│   │   │   ├── Navbar.tsx
+│   │   │   ├── Footer.tsx
+│   │   │   └── MobileMenu.tsx
+│   │   │
+│   │   └── shared/               # Componentes compartidos
+│   │       ├── LoadingSpinner.tsx
+│   │       ├── ErrorBoundary.tsx
+│   │       ├── ConfirmDialog.tsx
+│   │       └── EmptyState.tsx
+│   │
+│   ├── lib/
+│   │   ├── api/                  # Clientes de API
+│   │   │   ├── client.ts         # Axios instance configurado
+│   │   │   ├── auth.ts           # Auth API calls
+│   │   │   ├── appointments.ts   # Appointments API calls
+│   │   │   └── services.ts       # Services API calls
+│   │   │
+│   │   ├── auth/                 # Utilidades de autenticación
+│   │   │   ├── tokens.ts         # Token management
+│   │   │   ├── session.ts        # Session helpers
+│   │   │   └── protected-route.tsx
+│   │   │
+│   │   ├── validators/           # Schemas Zod
+│   │   │   ├── auth.ts
+│   │   │   ├── appointments.ts
+│   │   │   └── services.ts
+│   │   │
+│   │   ├── utils/
+│   │   │   ├── cn.ts             # classNames utility
+│   │   │   ├── format.ts         # Date, currency formatters
+│   │   │   └── timezone.ts       # Timezone helpers (date-fns-tz)
+│   │   │
+│   │   └── constants.ts          # Constantes globales
+│   │
+│   ├── stores/                   # State management (Zustand)
+│   │   ├── auth-store.ts
+│   │   ├── booking-store.ts
+│   │   └── ui-store.ts
+│   │
+│   ├── hooks/                    # Custom React hooks
+│   │   ├── useAuth.ts
+│   │   ├── useBooking.ts
+│   │   ├── useAppointments.ts
+│   │   └── use-toast.ts
+│   │
+│   ├── types/
+│   │   ├── api.ts                # Tipos de respuestas API
+│   │   ├── models.ts             # Tipos de modelos de datos
+│   │   └── shared.ts             # Tipos compartidos
+│   │
+│   ├── public/
+│   │   ├── images/
+│   │   ├── icons/
+│   │   └── locales/              # i18n (futuro)
+│   │
+│   ├── tests/
+│   │   ├── components/
+│   │   ├── e2e/
+│   │   └── fixtures/
+│   │
+│   ├── .env.local
+│   ├── .env.example
+│   ├── next.config.js
+│   ├── tailwind.config.ts
+│   ├── tsconfig.json
+│   ├── package.json
+│   └── vitest.config.ts
+│
+├── backend/                      # Express + Prisma
+│   ├── src/
+│   │   ├── index.ts              # Entry point
+│   │   ├── app.ts                # App factory (para testing)
+│   │   │
+│   │   ├── controllers/          # HTTP handling
+│   │   │   ├── auth.controller.ts
+│   │   │   ├── appointments.controller.ts
+│   │   │   ├── services.controller.ts
+│   │   │   ├── employees.controller.ts
+│   │   │   ├── payments.controller.ts
+│   │   │   ├── admin.controller.ts
+│   │   │   └── reviews.controller.ts
+│   │   │
+│   │   ├── services/             # Business logic pura
+│   │   │   ├── auth.service.ts
+│   │   │   ├── appointments.service.ts
+│   │   │   ├── availability.service.ts
+│   │   │   ├── payments.service.ts
+│   │   │   ├── notifications.service.ts
+│   │   │   ├── waitlist.service.ts
+│   │   │   └── analytics.service.ts
+│   │   │
+│   │   ├── repositories/         # Data access (Prisma)
+│   │   │   ├── user.repository.ts
+│   │   │   ├── appointment.repository.ts
+│   │   │   ├── service.repository.ts
+│   │   │   ├── employee.repository.ts
+│   │   │   └── payment.repository.ts
+│   │   │
+│   │   ├── middleware/           # Middleware stack
+│   │   │   ├── auth.middleware.ts       # JWT verification
+│   │   │   ├── error.middleware.ts      # Global error handler
+│   │   │   ├── rateLimit.middleware.ts  # Rate limiting
+│   │   │   ├── validation.middleware.ts # Zod validation
+│   │   │   ├── logger.middleware.ts     # Request logging
+│   │   │   └── security.middleware.ts   # Helmet, CORS
+│   │   │
+│   │   ├── routes/               # Route definitions
+│   │   │   ├── index.ts          # Router principal
+│   │   │   ├── auth.routes.ts
+│   │   │   ├── appointments.routes.ts
+│   │   │   ├── services.routes.ts
+│   │   │   ├── employees.routes.ts
+│   │   │   ├── payments.routes.ts
+│   │   │   ├── admin.routes.ts
+│   │   │   └── reviews.routes.ts
+│   │   │
+│   │   ├── dtos/                 # Data Transfer Objects
+│   │   │   ├── auth.dto.ts
+│   │   │   ├── appointments.dto.ts
+│   │   │   └── services.dto.ts
+│   │   │
+│   │   ├── events/               # Event system
+│   │   │   ├── event-emitter.ts
+│   │   │   ├── events.ts
+│   │   │   └── handlers/
+│   │   │       ├── appointment.handlers.ts
+│   │   │       └── payment.handlers.ts
+│   │   │
+│   │   ├── utils/
+│   │   │   ├── logger.ts         # Winston logger configurado
+│   │   │   ├── errors.ts         # Error classes personalizadas
+│   │   │   ├── timezone.ts       # Timezone utilities
+│   │   │   ├── circuitBreaker.ts
+│   │   │   └── retry.ts
+│   │   │
+│   │   ├── config/
+│   │   │   ├── database.ts       # Prisma client singleton
+│   │   │   ├── redis.ts          # Redis client singleton
+│   │   │   ├── stripe.ts         # Stripe client configurado
+│   │   │   ├── resend.ts         # Resend client configurado
+│   │   │   └── env.ts            # Validación de env vars (Zod)
+│   │   │
+│   │   └── container.ts          # Dependency injection container
+│   │
+│   ├── prisma/
+│   │   ├── schema.prisma         # Schema completo
+│   │   ├── migrations/           # Migraciones generadas
+│   │   └── seeds/
+│   │       └── seed.ts           # Seed data para desarrollo
+│   │
+│   ├── tests/
+│   │   ├── unit/
+│   │   │   ├── services/
+│   │   │   └── repositories/
+│   │   ├── integration/
+│   │   │   ├── auth.integration.test.ts
+│   │   │   └── appointments.integration.test.ts
+│   │   └── e2e/
+│   │       └── booking.e2e.test.ts
+│   │
+│   ├── Dockerfile
+│   ├── .env.local
+│   ├── .env.example
+│   ├── tsconfig.json
+│   ├── package.json
+│   └── vitest.config.ts
+│
+├── shared/                       # Código compartido
+│   └── types/
+│       ├── api.types.ts          # Tipos compartidos FE/BE
+│       └── models.types.ts
+│
+├── openspec/                     # OpenSpec artifacts (SDD)
+│   └── changes/
+│       └── sistema-reservas/
+│           ├── artifacts/
+│           │   ├── explore.md
+│           │   ├── proposal.md
+│           │   ├── spec.md
+│           │   ├── design.md
+│           │   └── tasks.md
+│           └── state.yaml
+│
+├── .gitignore
+├── .editorconfig
+├── .eslintrc.js
+├── .prettierrc
+├── turbo.json                    # Turborepo config
+├── package.json                  # Root package.json
+├── docker-compose.yml            # Docker Compose para desarrollo
+├── README.md
+└── CONTRIBUTING.md
+```
+
+### 5.2 Archivos Clave Iniciales
+
+**backend/src/index.ts**:
+```typescript
+import { app } from './app';
+import { logger } from './utils/logger';
+import { env } from './config/env';
+
+const PORT = env.PORT || 3001;
+
+app.listen(PORT, () => {
+  logger.info(`Server running on port ${PORT}`);
+  logger.info(`Environment: ${env.NODE_ENV}`);
+});
+```
+
+**backend/src/app.ts**:
+```typescript
+import express from 'express';
+import { securityMiddleware } from './middleware/security.middleware';
+import { errorMiddleware } from './middleware/error.middleware';
+import { routes } from './routes';
+
+export const app = express();
+
+// Middlewares
+app.use(securityMiddleware);
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+// Routes
+app.use('/api', routes);
+
+// Error handling
+app.use(errorMiddleware);
+```
+
+**frontend/app/layout.tsx**:
+```typescript
+import type { Metadata } from 'next';
+import { Inter } from 'next/font/google';
+import './globals.css';
+import { Providers } from './providers';
+
+const inter = Inter({ subsets: ['latin'] });
+
+export const metadata: Metadata = {
+  title: 'Sistema de Reservas',
+  description: 'Reserva tu cita en línea',
+};
+
+export default function RootLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  return (
+    <html lang="es">
+      <body className={inter.className}>
+        <Providers>{children}</Providers>
+      </body>
+    </html>
+  );
+}
+```
+
+---
+
+## 6. API Design Patterns
+
+### 6.1 Convenciones de API REST
+
+| Convención | Ejemplo | Justificación |
+|-----------|---------|---------------|
+| **Sustantivos en plural** | `/api/appointments`, `/api/services` | Consistencia, estándar REST |
+| **Verbos en HTTP methods** | GET, POST, PUT, PATCH, DELETE | RESTful, semántico |
+| **Nesting limitado** | `/api/employees/:id/appointments` (máx 1 nivel) | Evitar URLs complejas |
+| **Filtros en query params** | `?estado=CONFIRMADA&desde=2025-01-01` | Separar resource de filtros |
+| **Paginación estándar** | `?page=1&limit=20` | Consistencia en todas las respuestas |
+| **Ordenamiento** | `?sort=fechaInicio&order=desc` | Control del cliente sobre orden |
+| **Campos seleccionados** | `?fields=id,nombre,fechaInicio` | Optimizar payload (futuro) |
+| **Respuestas envueltas** | `{ data: {...}, pagination: {...} }` | Espacio para metadatos |
+| **Errores estandarizados** | `{ error: { code, message, details } }` | Facilita handling en frontend |
+
+### 6.2 Response Format
+
+**Success Response (200/201)**:
+```json
+{
+  "data": {
+    "cita": {
+      "id": "appt_123",
+      "servicio": {
+        "id": "srv_1",
+        "nombre": "Corte de Pelo",
+        "duracion": 30,
+        "precio": 25.00
+      },
+      "empleado": {
+        "id": "emp_1",
+        "nombre": "María González"
+      },
+      "cliente": {
+        "id": "usr_123",
+        "nombre": "Juan Pérez"
+      },
+      "fechaInicio": "2025-03-15T10:00:00Z",
+      "fechaFin": "2025-03-15T10:30:00Z",
+      "estado": "CONFIRMADA"
+    }
+  }
+}
+```
+
+**Paginated Response**:
+```json
+{
+  "data": {
+    "citas": [...]
+  },
+  "pagination": {
+    "page": 1,
+    "limit": 20,
+    "total": 45,
+    "totalPages": 3
+  }
+}
+```
+
+**Error Response**:
+```json
+{
+  "error": {
+    "code": "HORARIO_NO_DISPONIBLE",
+    "message": "El horario seleccionado ya no está disponible",
+    "details": {
+      "campo": "fechaInicio",
+      "valor": "2025-03-15T10:00:00Z"
+    },
+    "timestamp": "2025-03-11T14:30:00Z",
+    "path": "/api/appointments"
+  }
+}
+```
+
+### 6.3 Error Handling Pattern
+
+**backend/src/middleware/error.middleware.ts**:
+```typescript
+import { Request, Response, NextFunction } from 'express';
+import { logger } from '../utils/logger';
+import { AppError } from '../utils/errors';
+
+export const errorMiddleware = (
+  err: Error,
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  // Log error
+  logger.error({
+    message: err.message,
+    stack: err.stack,
+    path: req.path,
+    method: req.method,
+  });
+
+  // Error conocido (AppError)
+  if (err instanceof AppError) {
+    return res.status(err.statusCode).json({
+      error: {
+        code: err.code,
+        message: err.message,
+        details: err.details,
+        timestamp: new Date().toISOString(),
+        path: req.path,
+      },
+    });
+  }
+
+  // Error de Prisma (conflict, not found, etc.)
+  if (err.name === 'PrismaClientKnownRequestError') {
+    // Mapear errores de Prisma a AppError
+    // ...
+  }
+
+  // Error desconocido → 500
+  return res.status(500).json({
+    error: {
+      code: 'ERROR_INTERNO',
+      message: 'Error interno del servidor',
+      timestamp: new Date().toISOString(),
+      path: req.path,
+    },
+  });
+};
+```
+
+**backend/src/utils/errors.ts**:
+```typescript
+export class AppError extends Error {
+  constructor(
+    public code: string,
+    public message: string,
+    public statusCode: number,
+    public details?: Record<string, any>
+  ) {
+    super(message);
+    this.name = 'AppError';
+  }
+}
+
+// Error factory functions
+export const errors = {
+  // Auth errors (401)
+  unauthorized: () =>
+    new AppError('NO_AUTORIZADO', 'Credenciales inválidas', 401),
+  tokenExpired: () =>
+    new AppError('TOKEN_EXPIRADO', 'Token expirado', 401),
+  tokenRevoked: () =>
+    new AppError('TOKEN_REVOCADO', 'Token ya fue usado', 401),
+
+  // Validation errors (400)
+  validation: (details: Record<string, any>) =>
+    new AppError('VALIDACION_FALLIDO', 'Datos inválidos', 400, details),
+  invalidDate: () =>
+    new AppError('FECHA_INVALIDA', 'Fecha inválida', 400),
+
+  // Conflict errors (409)
+  emailDuplicated: () =>
+    new AppError('EMAIL_DUPLICADO', 'Email ya registrado', 409),
+  horarioNoDisponible: () =>
+    new AppError('HORARIO_NO_DISPONIBLE', 'Horario no disponible', 409),
+
+  // Not found errors (404)
+  notFound: (resource: string) =>
+    new AppError('RECURSO_NO_ENCONTRADO', `${resource} no encontrado`, 404),
+};
+```
+
+---
+
+## 7. Security Considerations
+
+### 7.1 Security Headers (Helmet)
+
+**backend/src/middleware/security.middleware.ts**:
+```typescript
+import helmet from 'helmet';
+import cors from 'cors';
+import { env } from '../config/env';
+
+export const securityMiddleware = [
+  // Security headers
+  helmet({
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: ["'self'", "'unsafe-inline'", 'js.stripe.com'],
+        styleSrc: ["'self'", "'unsafe-inline'"],
+        imgSrc: ["'self'", 'data:', 'https:'],
+        connectSrc: ["'self'", 'api.stripe.com'],
+        frameSrc: ["'self'", 'js.stripe.com'],
+      },
+    },
+    hsts: {
+      maxAge: 31536000,
+      includeSubDomains: true,
+      preload: true,
+    },
+  }),
+
+  // CORS
+  cors({
+    origin: env.ALLOWED_ORIGINS.split(','), // ['https://miapp.vercel.app']
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+  }),
+];
+```
+
+### 7.2 Rate Limiting
+
+```typescript
+import rateLimit from 'express-rate-limit';
+
+// General rate limit: 100 requests per 15 minutes
+export const generalRateLimit = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100, // 100 requests per windowMs
+  message: {
+    error: {
+      code: 'RATE_LIMIT_EXCEDIDO',
+      message: 'Demasiadas solicitudes, intente más tarde',
+    },
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+// Stricter limit for auth endpoints: 5 attempts per 15 minutes
+export const authRateLimit = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  message: {
+    error: {
+      code: 'RATE_LIMIT_EXCEDIDO',
+      message: 'Demasiados intentos de login',
+    },
+  },
+});
+```
+
+### 7.3 JWT Security
+
+```typescript
+import jwt from 'jsonwebtoken';
+import { env } from '../config/env';
+
+// Generate tokens
+export const generateTokens = (userId: string, role: string) => {
+  const accessToken = jwt.sign(
+    { userId, role },
+    env.JWT_SECRET,
+    { expiresIn: '15m' } // Short-lived
+  );
+
+  const refreshToken = jwt.sign(
+    { userId, type: 'refresh' },
+    env.JWT_REFRESH_SECRET,
+    { expiresIn: '7d' }
+  );
+
+  return { accessToken, refreshToken };
+};
+
+// Verify token
+export const verifyToken = (token: string, type: 'access' | 'refresh') => {
+  const secret = type === 'access' ? env.JWT_SECRET : env.JWT_REFRESH_SECRET;
+  return jwt.verify(token, secret);
+};
+
+// Middleware
+export const authMiddleware = (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  const authHeader = req.headers.authorization;
+
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return next(errors.unauthorized());
+  }
+
+  const token = authHeader.split(' ')[1];
+
+  try {
+    const decoded = verifyToken(token, 'access');
+    req.user = decoded; // Attach to request
+    next();
+  } catch (error) {
+    return next(errors.tokenExpired());
+  }
+};
+```
+
+### 7.4 Password Security
+
+```typescript
+import bcrypt from 'bcrypt';
+
+const SALT_ROUNDS = 10;
+
+export const hashPassword = async (password: string): Promise<string> => {
+  return bcrypt.hash(password, SALT_ROUNDS);
+};
+
+export const comparePassword = async (
+  password: string,
+  hash: string
+): Promise<boolean> => {
+  return bcrypt.compare(password, hash);
+};
+
+// Password policy (Zod schema)
+const passwordSchema = z
+  .string()
+  .min(8, 'Password debe tener al menos 8 caracteres')
+  .regex(/[A-Z]/, 'Password debe tener al menos una mayúscula')
+  .regex(/[0-9]/, 'Password debe tener al menos un número');
+```
+
+### 7.5 Input Validation (Zod)
+
+```typescript
+import { z } from 'zod';
+
+// Create appointment schema
+export const createAppointmentSchema = z.object({
+  servicioId: z.string().uuid('ID de servicio inválido'),
+  empleadoId: z.string().uuid('ID de empleado inválido'),
+  fechaInicio: z
+    .string()
+    .datetime()
+    .refine((date) => new Date(date) > new Date(), {
+      message: 'La fecha no puede estar en el pasado',
+    })
+    .refine(
+      (date) => {
+        const now = new Date();
+        const appointmentDate = new Date(date);
+        const hoursDiff = (appointmentDate.getTime() - now.getTime()) / (1000 * 60 * 60);
+        return hoursDiff >= 2; // 2 hours minimum
+      },
+      { message: 'La cita debe ser con al menos 2 horas de anticipación' }
+    ),
+  notas: z.string().max(500).optional(),
+});
+```
+
+### 7.6 SQL Injection Prevention
+
+- **Prisma ORM** usa parameterized queries por defecto
+- **Nunca** concatenar strings en queries
+- **Siempre** usar Prisma Client methods
+
+```typescript
+// ✅ Safe (Prisma parameterized)
+const citas = await prisma.cita.findMany({
+  where: {
+    clienteId: userId, // Parameterized
+    estado: 'CONFIRMADA',
+  },
+});
+
+// ❌ Unsafe (never do this)
+const citas = await prisma.$queryRawUnsafe(
+  `SELECT * FROM "Cita" WHERE "clienteId" = '${userId}'` // SQL injection risk!
+);
+```
+
+### 7.7 XSS Prevention
+
+- **React** escapa contenido por defecto
+- **Sanitizar** inputs de usuarios antes de guardar
+- **CSP headers** vía helmet
+
+```typescript
+import DOMPurify from 'dompurify';
+
+// Sanitize user input before storing
+const sanitizedNotes = DOMPurify.sanitize(notas, {
+  ALLOWED_TAGS: [], // No HTML tags allowed
+  ALLOWED_ATTR: [],
+});
+```
+
+### 7.8 CSRF Prevention
+
+- **httpOnly cookies** para refresh tokens (inaccesible desde JavaScript)
+- **SameSite=strict** en cookies
+- **CSRF tokens** en forms (si se usan cookies)
+
+```typescript
+// Set refresh token in httpOnly cookie
+res.cookie('refreshToken', refreshToken, {
+  httpOnly: true,
+  secure: env.NODE_ENV === 'production',
+  sameSite: 'strict',
+  maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+});
+```
+
+---
+
+## 8. Testing Strategy
+
+### 8.1 Testing Pyramid
+
+```
+         ┌─────────────┐
+         │    E2E      │  (10%) - Playwright
+         │   Tests     │  Flujos críticos completos
+         ├─────────────┤
+         │ Integration │  (20%) - Vitest + supertest
+         │   Tests     │  Múltiples capas juntas
+         ├─────────────┤
+         │    Unit     │  (70%) - Vitest
+         │   Tests     │  Servicios, repositorios, utils
+         └─────────────┘
+```
+
+### 8.2 Unit Tests (Vitest)
+
+**backend/tests/unit/services/auth.service.test.ts**:
+```typescript
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { AuthService } from '../../../src/services/auth.service';
+import { UserRepository } from '../../../src/repositories/user.repository';
+import { errors } from '../../../src/utils/errors';
+
+describe('AuthService', () => {
+  let authService: AuthService;
+  let mockUserRepository: UserRepository;
+
+  beforeEach(() => {
+    mockUserRepository = {} as UserRepository;
+    authService = new AuthService(mockUserRepository);
+  });
+
+  describe('registro', () => {
+    it('debe crear usuario con rol CLIENTE', async () => {
+      // Arrange
+      const datos = {
+        nombre: 'Test User',
+        email: 'test@test.com',
+        password: 'Test1234',
+      };
+
+      mockUserRepository.findByEmail = vi.fn().mockResolvedValue(null);
+      mockUserRepository.create = vi.fn().mockResolvedValue({
+        id: 'usr_123',
+        ...datos,
+        rol: 'CLIENTE',
+      });
+
+      // Act
+      const resultado = await authService.registro(datos);
+
+      // Assert
+      expect(resultado.usuario.email).toBe('test@test.com');
+      expect(resultado.usuario.rol).toBe('CLIENTE');
+      expect(resultado.tokens.accessToken).toBeDefined();
+    });
+
+    it('debe fallar si email ya existe', async () => {
+      // Arrange
+      mockUserRepository.findByEmail = vi.fn().mockResolvedValue({
+        id: 'usr_existing',
+        email: 'test@test.com',
+      });
+
+      // Act & Assert
+      await expect(
+        authService.registro({
+          nombre: 'Duplicate',
+          email: 'test@test.com',
+          password: 'Test1234',
+        })
+      ).rejects.toThrow('EMAIL_DUPLICADO');
+    });
+  });
+});
+```
+
+### 8.3 Integration Tests
+
+**backend/tests/integration/appointments.integration.test.ts**:
+```typescript
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import request from 'supertest';
+import { app } from '../../src/app';
+import { prisma } from '../../src/config/database';
+
+describe('Appointments Integration', () => {
+  let authToken: string;
+  let servicioId: string;
+  let empleadoId: string;
+
+  beforeAll(async () => {
+    // Setup: crear usuario, servicio, empleado
+    const usuario = await prisma.usuario.create({ ... });
+    const servicio = await prisma.servicio.create({ ... });
+    const empleado = await prisma.empleado.create({ ... });
+
+    // Login para obtener token
+    const response = await request(app)
+      .post('/api/auth/login')
+      .send({ email: usuario.email, password: 'Test1234' });
+
+    authToken = response.body.data.tokens.accessToken;
+    servicioId = servicio.id;
+    empleadoId = empleado.id;
+  });
+
+  afterAll(async () => {
+    // Cleanup
+    await prisma.cita.deleteMany();
+    await prisma.usuario.deleteMany();
+  });
+
+  describe('POST /api/appointments', () => {
+    it('debe crear cita exitosamente', async () => {
+      // Arrange
+      const citaData = {
+        servicioId,
+        empleadoId,
+        fechaInicio: '2025-03-15T10:00:00Z',
+      };
+
+      // Act
+      const response = await request(app)
+        .post('/api/appointments')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send(citaData)
+        .expect(201);
+
+      // Assert
+      expect(response.body.data.cita).toBeDefined();
+      expect(response.body.data.cita.estado).toBe('CONFIRMADA');
+    });
+
+    it('debe fallar con double booking', async () => {
+      // Arrange: crear primera cita
+      await request(app)
+        .post('/api/appointments')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({
+          servicioId,
+          empleadoId,
+          fechaInicio: '2025-03-15T10:00:00Z',
+        });
+
+      // Act: intentar crear segunda cita en mismo slot
+      const response = await request(app)
+        .post('/api/appointments')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({
+          servicioId,
+          empleadoId,
+          fechaInicio: '2025-03-15T10:00:00Z',
+        });
+
+      // Assert
+      expect(response.status).toBe(409);
+      expect(response.body.error.code).toBe('HORARIO_NO_DISPONIBLE');
+    });
+  });
+});
+```
+
+### 8.4 E2E Tests (Playwright)
+
+**frontend/tests/e2e/booking.e2e.spec.ts**:
+```typescript
+import { test, expect } from '@playwright/test';
+
+test.describe('Booking Flow', () => {
+  test('complete booking flow from start to confirmation', async ({ page }) => {
+    // 1. Navigate to booking
+    await page.goto('/booking');
+
+    // 2. Select service
+    await page.click('[data-testid="service-1"]');
+    await expect(page.locator('[data-testid="step-1-complete"]')).toBeVisible();
+
+    // 3. Select employee
+    await page.click('[data-testid="employee-1"]');
+    await expect(page.locator('[data-testid="step-2-complete"]')).toBeVisible();
+
+    // 4. Select date and time
+    await page.click('[data-date="2025-03-15"]');
+    await page.click('[data-time="10:00"]');
+    await expect(page.locator('[data-testid="step-3-complete"]')).toBeVisible();
+
+    // 5. Fill personal data
+    await page.fill('[name="nombre"]', 'Test User');
+    await page.fill('[name="email"]', 'test@example.com');
+    await page.fill('[name="telefono"]', '+1234567890');
+
+    // 6. Confirm booking
+    await page.click('button:has-text("Confirmar Reserva")');
+
+    // 7. Verify confirmation
+    await expect(page).toHaveURL(/\/citas\/.+\/confirmacion/);
+    await expect(
+      page.locator('[data-testid="confirmation-message"]')
+    ).toBeVisible();
+    await expect(
+      page.locator('[data-testid="appointment-id"]')
+    ).toBeVisible();
+  });
+
+  test('should show error when slot is no longer available', async ({
+    page,
+  }) => {
+    // Setup: book slot manually (simulate concurrent booking)
+
+    // Try to book same slot via UI
+    await page.goto('/booking');
+    // ... select same service, employee, time
+
+    // Should show error
+    await page.click('button:has-text("Confirmar Reserva")');
+    await expect(
+      page.locator('[data-testid="error-message"]')
+    ).toContainText('Horario no disponible');
+  });
+});
+```
+
+---
+
+## 9. Deployment Architecture
+
+### 9.1 Production Deployment
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    Production Architecture                       │
+└─────────────────────────────────────────────────────────────────┘
+
+┌──────────────────┐
+│   Cloudflare     │  ← CDN + DNS
+│   (DNS + CDN)    │
+└────────┬─────────┘
+         │
+         │ HTTPS
+         │
+┌────────▼─────────┐
+│     Vercel       │  ← Frontend (Next.js)
+│   (Edge CDN)     │  - Static assets cached globally
+│                  │  - Serverless functions (BFF)
+│                  │  - Preview deployments
+└────────┬─────────┘
+         │
+         │ HTTPS to backend
+         │
+┌────────▼─────────┐
+│    Railway       │  ← Backend (Express + Docker)
+│  (Auto-scaling)  │  - 2+ instances for HA
+│                  │  - Auto-deploy from GitHub
+│                  │  - Health checks
+└────────┬─────────┘
+         │
+         ├──────────────────┬──────────────────┐
+         │                  │                  │
+┌────────▼─────────┐ ┌──────▼──────┐ ┌────────▼────────┐
+│   PostgreSQL     │ │    Redis    │ │ Cloudflare R2   │
+│   (Primary +     │ │   (Cache)   │ │  (File Storage) │
+│    Read Replica) │ │             │ │                 │
+│                  │ │ - Sessions  │ │ - Logos         │
+│ - ACID compliant │ │ - Rate Lim  │ │ - Photos        │
+│ - Point-in-time  │ │ - Cache Q.  │ │ - Documents     │
+│   recovery       │ │ (TTL: 1m)   │ │                 │
+└──────────────────┘ └─────────────┘ └─────────────────┘
+
+┌──────────────────┐ ┌──────────────────┐ ┌──────────────────┐
+│     Stripe       │ │     Resend       │ │     Twilio       │
+│   (Payments)     │ │    (Email)       │ │     (SMS)        │
+└──────────────────┘ └──────────────────┘ └──────────────────┘
+
+┌──────────────────┐ ┌──────────────────┐
+│     Sentry       │ │   UptimeRobot    │
+│  (Error Track)   │ │   (Monitoring)   │
+└──────────────────┘ └──────────────────┘
+```
+
+### 9.2 Environment Variables
+
+**backend/.env.example**:
+```bash
+# General
+NODE_ENV=production
+PORT=3001
+
+# Database
+DATABASE_URL="postgresql://user:password@host:5432/dbname?schema=public"
+
+# Redis
+REDIS_URL="redis://user:password@host:6379"
+
+# JWT
+JWT_SECRET="your-super-secret-key-min-32-chars"
+JWT_REFRESH_SECRET="another-super-secret-key-min-32-chars"
+JWT_EXPIRES_IN="15m"
+JWT_REFRESH_EXPIRES_IN="7d"
+
+# Stripe
+STRIPE_SECRET_KEY="sk_live_..."
+STRIPE_WEBHOOK_SECRET="whsec_..."
+STRIPE_PUBLISHABLE_KEY="pk_live_..."
+
+# Resend
+RESEND_API_KEY="re_..."
+EMAIL_FROM="noreply@tuapp.com"
+
+# Twilio
+TWILIO_ACCOUNT_SID="AC..."
+TWILIO_AUTH_TOKEN="..."
+TWILIO_PHONE_NUMBER="+1234567890"
+
+# CORS
+ALLOWED_ORIGINS="https://tuapp.com,https://www.tuapp.com"
+
+# Rate Limiting
+RATE_LIMIT_WINDOW_MS=900000
+RATE_LIMIT_MAX=100
+
+# Logging
+LOG_LEVEL="info"
+
+# S3 (Cloudflare R2)
+R2_ENDPOINT="https://account-id.r2.cloudflarestorage.com"
+R2_ACCESS_KEY_ID="..."
+R2_SECRET_ACCESS_KEY="..."
+R2_BUCKET_NAME="tuapp-bucket"
+```
+
+### 9.3 Docker Configuration
+
+**backend/Dockerfile**:
+```dockerfile
+# Build stage
+FROM node:20-alpine AS builder
+
+WORKDIR /app
+
+# Install dependencies
+COPY package*.json ./
+COPY pnpm-lock.yaml ./
+RUN npm install -g pnpm
+RUN pnpm install --frozen-lockfile
+
+# Copy source and build
+COPY . .
+RUN pnpm build
+
+# Production stage
+FROM node:20-alpine AS runner
+
+WORKDIR /app
+
+ENV NODE_ENV=production
+
+# Create non-root user
+RUN addgroup --system --gid 1001 nodejs
+RUN adduser --system --uid 1001 nodeuser
+
+# Copy built artifacts
+COPY --from=builder /app/package.json ./
+COPY --from=builder /app/pnpm-lock.yaml ./
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/prisma ./prisma
+
+# Install Prisma
+RUN npx prisma generate
+
+USER nodeuser
+
+EXPOSE 3001
+
+CMD ["node", "dist/index.js"]
+```
+
+**docker-compose.yml** (desarrollo):
+```yaml
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: sistema_reservas
+    ports:
+      - '5432:5432'
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - '6379:6379'
+    volumes:
+      - redis_data:/data
+
+  backend:
+    build:
+      context: ./backend
+      target: runner
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/sistema_reservas
+      REDIS_URL: redis://redis:6379
+      NODE_ENV: development
+    ports:
+      - '3001:3001'
+    depends_on:
+      - postgres
+      - redis
+    volumes:
+      - ./backend:/app
+      - /app/node_modules
+
+  frontend:
+    build:
+      context: ./frontend
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:3001/api
+    ports:
+      - '3000:3000'
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:
+  redis_data:
+```
+
+---
+
+## 10. Monitoring & Observability
+
+### 10.1 Logging Strategy
+
+```typescript
+// backend/src/utils/logger.ts
+import winston from 'winston';
+
+export const logger = winston.createLogger({
+  level: process.env.LOG_LEVEL || 'info',
+  format: winston.format.combine(
+    winston.format.timestamp(),
+    winston.format.json()
+  ),
+  defaultMeta: { service: 'sistema-reservas-api' },
+  transports: [
+    new winston.transports.Console(),
+    new winston.transports.File({ filename: 'logs/error.log', level: 'error' }),
+    new winston.transports.File({ filename: 'logs/combined.log' }),
+  ],
+});
+
+// Structured logging example
+logger.info({
+  event: 'cita.creada',
+  citaId: 'appt_123',
+  clienteId: 'usr_456',
+  fechaInicio: '2025-03-15T10:00:00Z',
+  duration: 30,
+});
+```
+
+### 10.2 Metrics to Track
+
+| Métrica | Por Qué | Alert Threshold |
+|---------|---------|-----------------|
+| **API Response Time (p95)** | Performance perception | > 500ms |
+| **API Response Time (p99)** | Worst case scenarios | > 1s |
+| **Error Rate** | System health | > 1% |
+| **Double Booking Incidents** | Critical business logic | > 0 |
+| **Webhook Failures** | Payment reliability | > 0 |
+| **Email Delivery Rate** | Notification reliability | < 95% |
+| **Database Connection Pool** | Resource exhaustion | > 80% |
+| **Memory Usage** | Memory leaks | > 80% |
+| **CPU Usage** | Scaling needs | > 70% |
+
+### 10.3 Health Checks
+
+**backend/src/routes/health.routes.ts**:
+```typescript
+import { Router } from 'express';
+import { prisma } from '../config/database';
+import { redis } from '../config/redis';
+
+const router = Router();
+
+// Basic health check
+router.get('/health', (req, res) => {
+  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+// Detailed readiness check
+router.get('/ready', async (req, res) => {
+  const checks = {
+    database: false,
+    redis: false,
+  };
+
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+    checks.database = true;
+  } catch (error) {
+    // Log error
+  }
+
+  try {
+    await redis.ping();
+    checks.redis = true;
+  } catch (error) {
+    // Log error
+  }
+
+  const allHealthy = Object.values(checks).every(Boolean);
+  const status = allHealthy ? 'ready' : 'not_ready';
+  const statusCode = allHealthy ? 200 : 503;
+
+  res.status(statusCode).json({
+    status,
+    checks,
+    timestamp: new Date().toISOString(),
+  });
+});
+
+export default router;
+```
+
+---
+
+## 11. Next Steps
+
+### 11.1 Artifacts Created
+
+| Artifact | Status | Location |
+|----------|--------|----------|
+| Exploration | ✅ Completed | `openspec/changes/sistema-reservas/artifacts/explore.md` |
+| Proposal | ✅ Completed | `openspec/changes/sistema-reservas/artifacts/proposal.md` |
+| Spec | ✅ Completed | `openspec/changes/sistema-reservas/artifacts/spec.md` |
+| **Design** | ✅ Completed | `openspec/changes/sistema-reservas/artifacts/design.md` |
+| Tasks | 🔲 Pending | `openspec/changes/sistema-reservas/artifacts/tasks.md` |
+
+### 11.2 Recommended Next Phase
+
+**`/sdd-tasks`** - Descomponer el diseño en tareas implementables:
+- Estimación de esfuerzo por tarea
+- Dependencias entre tareas
+- Asignación de prioridades
+- Definition of Done para cada tarea
+- Sprint planning sugerido
+
+### 11.3 Key Decisions Made
+
+1. **Monorepo con Turborepo** para compartir tipos y scripts
+2. **Next.js 14 App Router** con server components
+3. **Express + Prisma** para backend type-safe
+4. **PostgreSQL + Redis** para data layer
+5. **Stripe** para pagos (webhook-driven)
+6. **JWT stateless** con refresh token rotation
+7. **Railway** para deploy (simplicity over AWS complexity)
+8. **Vitest + Playwright** para testing pyramid
+
+---
+
+**Status**: ✅ Completed  
+**Next Phase**: `/sdd-tasks`  
+**Artifact Mode**: hybrid (Engram + OpenSpec)
